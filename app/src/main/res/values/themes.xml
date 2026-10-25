@@ -1,7 +1,16 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <style name="Theme.KbmMapper" parent="Theme.MaterialComponents.DayNight.NoActionBar">
-        <item name="colorPrimary">@color/purple_500</item>
-        <item name="colorPrimaryDark">@color/purple_700</item>
-        <item name="colorAccent">@color/purple_500</item>
+<resources>
+    <!--
+        Tema de janela mínimo (plataforma, sem dependências extras). A
+        interface em si é 100% Jetpack Compose (ver ui/theme/Theme.kt);
+        este tema só define a cor de fundo e das barras do sistema antes
+        do Compose desenhar a primeira tela.
+    -->
+    <style name="Theme.MobiladorProX" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/background_black</item>
+        <item name="android:colorPrimary">@color/neon_purple</item>
+        <item name="android:colorAccent">@color/neon_blue</item>
+        <item name="android:statusBarColor">@color/background_black</item>
+        <item name="android:navigationBarColor">@color/background_black</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
     </style>
 </resources>

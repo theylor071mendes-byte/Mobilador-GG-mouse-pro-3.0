@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "KbmMapper"
+rootProject.name = "MobiladorProX"
 include ':app'

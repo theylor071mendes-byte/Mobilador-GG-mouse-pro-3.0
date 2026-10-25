@@ -29,19 +29,44 @@ jobs:
           gradle-version: 8.7
 
       - name: Build debug APK
-        run: gradle assembleDebug --no-daemon
+        id: build
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+        continue-on-error: true
+
+      # Sempre publica o log completo (sucesso ou falha) como uma Release,
+      # porque o download direto de artifacts/logs do Actions não é
+      # alcançável a partir do ambiente usado para gerar este projeto.
+      # Isso garante que o log de erro possa ser lido e corrigido mesmo
+      # quando a compilação falhar.
+      - name: Publicar log de build como Release (para diagnóstico)
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "logs-${{ github.run_number }}" build.log \
+            --title "Log de build - run ${{ github.run_number }}" \
+            --notes "Log completo (stdout+stderr) do gradle assembleDebug para o commit ${{ github.sha }}." \
+            || gh release upload "logs-${{ github.run_number }}" build.log --clobber
+
+      - name: Falhar o job se a compilação falhou
+        if: steps.build.outcome == 'failure'
+        run: exit 1
 
       - name: Upload APK artifact
+        if: steps.build.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
-          name: kbm-mapper-debug-apk
+          name: mobilador-pro-x-debug-apk
           path: app/build/outputs/apk/debug/*.apk
 
-      - name: Publish APK as a GitHub Release
+      - name: Publicar APK como Release
+        if: steps.build.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "build-${{ github.run_number }}" \
             app/build/outputs/apk/debug/*.apk \
-            --title "KBM Mapper - build ${{ github.run_number }}" \
-            --notes "APK gerado automaticamente pelo GitHub Actions a partir do commit ${{ github.sha }}."
+            --title "MOBILADOR PRO X - build ${{ github.run_number }}" \
+            --notes "APK de depuração gerado automaticamente pelo GitHub Actions a partir do commit ${{ github.sha }}."

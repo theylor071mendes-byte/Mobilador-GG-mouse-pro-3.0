@@ -1,6 +1,7 @@
 <resources>
-    <color name="purple_500">#FF6750A4</color>
-    <color name="purple_700">#FF4F378B</color>
-    <color name="status_enabled">#FF1E8E3E</color>
-    <color name="status_disabled">#FFB3261E</color>
+    <color name="background_black">#FF0A0A0F</color>
+    <color name="surface_dark">#FF15151F</color>
+    <color name="neon_purple">#FF9D4DFF</color>
+    <color name="neon_blue">#FF00E5FF</color>
+    <color name="text_primary">#FFF5F5FF</color>
 </resources>
