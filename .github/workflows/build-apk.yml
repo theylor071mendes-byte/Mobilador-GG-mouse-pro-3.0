@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,3 +36,12 @@ jobs:
         with:
           name: kbm-mapper-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Publish APK as a GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "build-${{ github.run_number }}" \
+            app/build/outputs/apk/debug/*.apk \
+            --title "KBM Mapper - build ${{ github.run_number }}" \
+            --notes "APK gerado automaticamente pelo GitHub Actions a partir do commit ${{ github.sha }}."
