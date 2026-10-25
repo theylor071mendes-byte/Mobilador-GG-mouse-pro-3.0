@@ -1,0 +1,26 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="#FF6750A4"
+        android:pathData="M0,0h108v108h-108z" />
+
+    <!-- Teclado -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M20,40 h48 a6,6 0 0 1 6,6 v22 a6,6 0 0 1 -6,6 h-48 a6,6 0 0 1 -6,-6 v-22 a6,6 0 0 1 6,-6 z" />
+    <path
+        android:fillColor="#FF6750A4"
+        android:pathData="M26,48 h6v6h-6z M38,48 h6v6h-6z M50,48 h6v6h-6z M62,48 h6v6h-6z M26,58 h36v6h-36z" />
+
+    <!-- Mouse -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M78,34 a12,12 0 0 1 12,12 v14 a12,12 0 0 1 -12,12 a12,12 0 0 1 -12,-12 v-14 a12,12 0 0 1 12,-12 z" />
+    <path
+        android:fillColor="#FF6750A4"
+        android:pathData="M77,34 h2 v14 h-2z" />
+</vector>

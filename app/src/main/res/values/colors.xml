@@ -1,0 +1,6 @@
+<resources>
+    <color name="purple_500">#FF6750A4</color>
+    <color name="purple_700">#FF4F378B</color>
+    <color name="status_enabled">#FF1E8E3E</color>
+    <color name="status_disabled">#FFB3261E</color>
+</resources>

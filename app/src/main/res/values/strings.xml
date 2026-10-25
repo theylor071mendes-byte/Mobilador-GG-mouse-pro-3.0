@@ -1,0 +1,22 @@
+<resources>
+    <string name="app_name">KBM Mapper</string>
+    <string name="subtitle">Use atalhos do teclado para navegar pelo celular. O mouse (cursor, clique e rolagem) já funciona automaticamente assim que você conecta um mouse USB ou Bluetooth — isso é um recurso nativo do Android.</string>
+
+    <string name="status_enabled">Serviço ativado ✓</string>
+    <string name="status_disabled">Serviço desativado — toque no botão abaixo</string>
+    <string name="btn_enable_accessibility">Ativar nos Ajustes de Acessibilidade</string>
+    <string name="btn_manage_accessibility">Gerenciar nos Ajustes de Acessibilidade</string>
+
+    <string name="mouse_note">Dica: conecte o teclado e o mouse por Bluetooth ou por um adaptador USB-OTG. O cursor do mouse aparece automaticamente na tela.</string>
+
+    <string name="mappings_title">Atalhos de teclado</string>
+    <string name="map_back">Esc → Voltar</string>
+    <string name="map_home">Tecla Windows/Meta → Tela inicial</string>
+    <string name="map_recents">Alt + Tab → Apps recentes</string>
+    <string name="map_notifications">Ctrl + N → Notificações</string>
+    <string name="map_quick_settings">F1 → Ajustes rápidos</string>
+
+    <string name="privacy_note">Este app não acessa a internet, não lê o conteúdo da tela e não coleta nenhum dado. Ele só usa a permissão de Acessibilidade para simular os botões de navegação do sistema (Voltar, Início, Recentes).</string>
+
+    <string name="accessibility_service_description">Permite usar atalhos do teclado físico (Esc, tecla Windows, Alt+Tab, etc.) para navegar pelo sistema: Voltar, Tela inicial, Apps recentes, Notificações e Ajustes rápidos. Não lê o conteúdo da tela nem acessa a internet.</string>
+</resources>
