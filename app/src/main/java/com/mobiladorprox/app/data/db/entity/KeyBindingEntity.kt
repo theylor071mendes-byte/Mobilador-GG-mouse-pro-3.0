@@ -30,5 +30,9 @@ data class KeyBindingEntity(
     val gestureType: String,
     /** Posição na tela em porcentagem (0f a 1f) da largura/altura. */
     val xPercent: Float,
-    val yPercent: Float
+    val yPercent: Float,
+    /** Escala visual do botão (1f = tamanho padrão). Permite redimensionar no editor. */
+    val sizePercent: Float = 1f,
+    /** Usado apenas por ANALOG_STICK: 4 keyCodes separados por vírgula, na ordem cima,baixo,esquerda,direita. */
+    val extraKeyCodes: String? = null
 )

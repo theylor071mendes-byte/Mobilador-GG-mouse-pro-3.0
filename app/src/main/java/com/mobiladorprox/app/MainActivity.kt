@@ -1,6 +1,7 @@
 package com.mobiladorprox.app
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -22,7 +23,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -73,11 +76,29 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestNotificationPermissionIfNeeded()
+        consumeOpenRouteExtra(intent)
 
         setContent {
             MobiladorProXTheme {
                 MobiladorApp(factory)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeOpenRouteExtra(intent)
+    }
+
+    /**
+     * Lê a rota que o painel flutuante (bola) pediu para abrir — "Editar
+     * Keymaps" ou "Configurações do mouse" — quando o app é reaberto a
+     * partir dele enquanto o jogo está em primeiro plano.
+     */
+    private fun consumeOpenRouteExtra(intent: Intent?) {
+        intent?.getStringExtra(EXTRA_OPEN_ROUTE)?.let { route ->
+            PendingNavigation.route.value = route
         }
     }
 
@@ -91,6 +112,15 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    companion object {
+        const val EXTRA_OPEN_ROUTE = "extra_open_route"
+    }
+}
+
+/** Ponte simples entre o OverlayService (fora da Activity) e o NavHost em Compose. */
+private object PendingNavigation {
+    val route = mutableStateOf<String?>(null)
 }
 
 private data class BottomDestination(val route: String, val label: String, val icon: ImageVector)
@@ -106,6 +136,15 @@ private fun MobiladorApp(factory: ViewModelFactory) {
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route
     val showBottomBar = currentRoute == Routes.HOME || currentRoute == Routes.MENU
+
+    val pendingRoute by PendingNavigation.route
+    LaunchedEffect(pendingRoute) {
+        val route = pendingRoute
+        if (route != null) {
+            navController.navigate(route) { launchSingleTop = true }
+            PendingNavigation.route.value = null
+        }
+    }
 
     Scaffold(
         bottomBar = {

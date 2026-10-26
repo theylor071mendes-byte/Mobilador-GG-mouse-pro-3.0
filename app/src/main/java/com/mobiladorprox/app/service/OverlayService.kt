@@ -22,6 +22,7 @@ import androidx.core.app.NotificationCompat
 import com.mobiladorprox.app.MainActivity
 import com.mobiladorprox.app.MobiladorApplication
 import com.mobiladorprox.app.R
+import com.mobiladorprox.app.ui.navigation.Routes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -226,6 +227,10 @@ class OverlayService : Service() {
             }
         }
 
+        // Atalhos principais ao tocar na bola: Editar Keymaps e Configurações do mouse.
+        container.addView(simpleButton("Editar Keymaps") { openScreenInApp(keymapsRouteOrHome()) })
+        container.addView(simpleButton("Configurações do mouse") { openScreenInApp(Routes.MOUSE_SETTINGS) })
+
         container.addView(panelButton(
             labelOn = "Mapeador: ATIVO",
             labelOff = "Mapeador: INATIVO",
@@ -295,6 +300,23 @@ class OverlayService : Service() {
     }
 
     // ---------------------------------------------------------------------
+    // Atalhos para abrir o app a partir do painel flutuante
+    // ---------------------------------------------------------------------
+
+    private fun keymapsRouteOrHome(): String {
+        val profileId = MapperState.activeProfileId
+        return if (profileId != null) Routes.keymaps(profileId) else Routes.HOME
+    }
+
+    private fun openScreenInApp(route: String) {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            putExtra(MainActivity.EXTRA_OPEN_ROUTE, route)
+        }
+        runCatching { startActivity(intent) }
+    }
+
+    // ---------------------------------------------------------------------
     // Perfil ativo e preferências globais
     // ---------------------------------------------------------------------
 
@@ -335,7 +357,11 @@ class OverlayService : Service() {
 
         smoothedDx = 0f
         smoothedDy = 0f
-        val view = PointerCaptureView(this) { dx, dy -> onPointerDelta(dx, dy) }
+        val view = PointerCaptureView(
+            this,
+            onDelta = { dx, dy -> onPointerDelta(dx, dy) },
+            onButton = { code, pressed -> MapperAccessibilityService.instance?.handleMouseButton(code, pressed) }
+        )
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,

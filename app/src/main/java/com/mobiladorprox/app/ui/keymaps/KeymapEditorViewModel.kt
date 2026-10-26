@@ -60,6 +60,14 @@ class KeymapEditorViewModel(private val repository: ProfileRepository) : ViewMod
         _unsavedChanges.value = true
     }
 
+    /** Redimensiona um botão virtual (0.6x a 1.8x do tamanho padrão). */
+    fun updateBindingSize(bindingId: Long, sizePercent: Float) {
+        _bindings.value = _bindings.value.map {
+            if (it.id == bindingId) it.copy(sizePercent = sizePercent.coerceIn(0.6f, 1.8f)) else it
+        }
+        _unsavedChanges.value = true
+    }
+
     fun updateBindingKey(bindingId: Long, newKeyCode: Int) {
         _bindings.value = _bindings.value.map { if (it.id == bindingId) it.copy(keyCode = newKeyCode) else it }
         _unsavedChanges.value = true
@@ -76,7 +84,13 @@ class KeymapEditorViewModel(private val repository: ProfileRepository) : ViewMod
     }
 
     /** IDs negativos identificam bindings novos ainda não salvos no banco. */
-    fun addBinding(label: String, keyCode: Int, gestureType: GestureType) {
+    fun addBinding(
+        label: String,
+        keyCode: Int,
+        gestureType: GestureType,
+        xPercent: Float = 0.5f,
+        yPercent: Float = 0.5f
+    ) {
         val tempId = -System.currentTimeMillis()
         _bindings.value = _bindings.value + KeyBindingEntity(
             id = tempId,
@@ -85,8 +99,8 @@ class KeymapEditorViewModel(private val repository: ProfileRepository) : ViewMod
             label = label,
             keyCode = keyCode,
             gestureType = gestureType.name,
-            xPercent = 0.5f,
-            yPercent = 0.5f
+            xPercent = xPercent.coerceIn(0f, 1f),
+            yPercent = yPercent.coerceIn(0f, 1f)
         )
         _unsavedChanges.value = true
     }

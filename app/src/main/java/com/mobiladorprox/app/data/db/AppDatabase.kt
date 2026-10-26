@@ -9,7 +9,7 @@ import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
 
 @Database(
     entities = [GameProfileEntity::class, KeyBindingEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

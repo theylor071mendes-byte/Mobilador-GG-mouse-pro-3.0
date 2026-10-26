@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -60,6 +61,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
 import com.mobiladorprox.app.data.model.GestureType
+import com.mobiladorprox.app.data.model.MouseButtons
 import com.mobiladorprox.app.ui.ViewModelFactory
 import com.mobiladorprox.app.ui.components.GlowButton
 import com.mobiladorprox.app.ui.components.NeonCard
@@ -81,6 +83,7 @@ fun KeymapEditorScreen(factory: ViewModelFactory, profileId: Long, onBack: () ->
     val unsaved by viewModel.unsavedChanges.collectAsStateWithLifecycle()
 
     var addingBinding by remember { mutableStateOf(false) }
+    var pendingAddPosition by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var editingBinding by remember { mutableStateOf<KeyBindingEntity?>(null) }
     var showLoadProfile by remember { mutableStateOf(false) }
     var showRestoreConfirm by remember { mutableStateOf(false) }
@@ -120,7 +123,9 @@ fun KeymapEditorScreen(factory: ViewModelFactory, profileId: Long, onBack: () ->
 
             Spacer(Modifier.height(8.dp))
             Text(
-                "Arraste os botões para a posição ideal na tela. Toque em um botão para renomear, trocar a tecla ou excluir.",
+                "Arraste os botões para reposicionar. Toque duas vezes na prévia para adicionar um " +
+                    "botão novo no local tocado. Toque em um botão existente para renomear, " +
+                    "redimensionar, trocar a tecla/clique ou excluir.",
                 color = TextSecondary,
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -134,14 +139,21 @@ fun KeymapEditorScreen(factory: ViewModelFactory, profileId: Long, onBack: () ->
                     .clip(RoundedCornerShape(18.dp))
                     .background(Color(0xFF101018))
                     .border(1.dp, NeonPurple.copy(alpha = 0.4f), RoundedCornerShape(18.dp))
+                    .pointerInput(Unit) {
+                        detectTapGestures(onDoubleTap = { offset ->
+                            pendingAddPosition = (offset.x / size.width.toFloat()).coerceIn(0f, 1f) to
+                                (offset.y / size.height.toFloat()).coerceIn(0f, 1f)
+                            addingBinding = true
+                        })
+                    }
             ) {
                 val widthPx = constraints.maxWidth.toFloat()
                 val heightPx = constraints.maxHeight.toFloat()
-                val chipSize = 40.dp
 
                 bindings.forEach { binding ->
                     var xPercent by remember(binding.id) { mutableStateOf(binding.xPercent) }
                     var yPercent by remember(binding.id) { mutableStateOf(binding.yPercent) }
+                    val chipSize = 40.dp * binding.sizePercent
 
                     Box(
                         modifier = Modifier
@@ -153,7 +165,10 @@ fun KeymapEditorScreen(factory: ViewModelFactory, profileId: Long, onBack: () ->
                             }
                             .size(chipSize)
                             .clip(CircleShape)
-                            .background(NeonPurple.copy(alpha = 0.85f))
+                            .background(
+                                if (binding.gestureType == GestureType.ANALOG_STICK.name) NeonBlue.copy(alpha = 0.85f)
+                                else NeonPurple.copy(alpha = 0.85f)
+                            )
                             .border(1.dp, Color.White.copy(alpha = 0.5f), CircleShape)
                             .pointerInput(binding.id) {
                                 detectDragGestures { change, dragAmount ->
@@ -177,7 +192,7 @@ fun KeymapEditorScreen(factory: ViewModelFactory, profileId: Long, onBack: () ->
             }
 
             Spacer(Modifier.height(12.dp))
-            TextButton(onClick = { addingBinding = true }) { Text("+ Adicionar botão") }
+            TextButton(onClick = { pendingAddPosition = null; addingBinding = true }) { Text("+ Adicionar botão") }
 
             Spacer(Modifier.height(4.dp))
             LazyColumn(
@@ -206,10 +221,12 @@ fun KeymapEditorScreen(factory: ViewModelFactory, profileId: Long, onBack: () ->
 
     if (addingBinding) {
         AddBindingDialog(
-            onDismiss = { addingBinding = false },
+            onDismiss = { addingBinding = false; pendingAddPosition = null },
             onConfirm = { label, keyCode, gestureType ->
-                viewModel.addBinding(label, keyCode, gestureType)
+                val pos = pendingAddPosition ?: (0.5f to 0.5f)
+                viewModel.addBinding(label, keyCode, gestureType, pos.first, pos.second)
                 addingBinding = false
+                pendingAddPosition = null
             }
         )
     }
@@ -220,6 +237,7 @@ fun KeymapEditorScreen(factory: ViewModelFactory, profileId: Long, onBack: () ->
             onDismiss = { editingBinding = null },
             onRename = { viewModel.renameBinding(binding.id, it) },
             onChangeKey = { viewModel.updateBindingKey(binding.id, it) },
+            onChangeSize = { viewModel.updateBindingSize(binding.id, it) },
             onDelete = { viewModel.removeBinding(binding.id); editingBinding = null }
         )
     }
@@ -274,10 +292,16 @@ fun KeymapEditorScreen(factory: ViewModelFactory, profileId: Long, onBack: () ->
     }
 }
 
+/** Rótulo legível para um keyCode: nome da tecla, ou "Clique esquerdo/direito/meio" para o mouse. */
+private fun keyLabelFor(code: Int): String =
+    MouseButtons.labelFor(code) ?: KeyEvent.keyCodeToString(code).removePrefix("KEYCODE_")
+
+private enum class InputMode { TECLADO, MOUSE }
+
 @Composable
 private fun BindingListRow(binding: KeyBindingEntity, onClick: () -> Unit) {
     val gestureType = runCatching { GestureType.valueOf(binding.gestureType) }.getOrNull()
-    val keyName = remember(binding.keyCode) { KeyEvent.keyCodeToString(binding.keyCode).removePrefix("KEYCODE_") }
+    val keyName = remember(binding.keyCode) { keyLabelFor(binding.keyCode) }
     NeonCard(modifier = Modifier.clickable { onClick() }) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Column {
@@ -295,11 +319,16 @@ private fun EditBindingDialog(
     onDismiss: () -> Unit,
     onRename: (String) -> Unit,
     onChangeKey: (Int) -> Unit,
+    onChangeSize: (Float) -> Unit,
     onDelete: () -> Unit
 ) {
     var label by remember { mutableStateOf(binding.label) }
+    var inputMode by remember {
+        mutableStateOf(if (MouseButtons.isMouseButton(binding.keyCode)) InputMode.MOUSE else InputMode.TECLADO)
+    }
     var capturing by remember { mutableStateOf(false) }
     var newKeyCode by remember { mutableStateOf(binding.keyCode) }
+    var sizePercent by remember { mutableStateOf(binding.sizePercent) }
     val focusRequester = remember { FocusRequester() }
 
     AlertDialog(
@@ -309,26 +338,43 @@ private fun EditBindingDialog(
             Column {
                 OutlinedTextField(value = label, onValueChange = { label = it }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
-                if (capturing) {
-                    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .focusRequester(focusRequester)
-                            .focusable()
-                            .onKeyEvent { event ->
-                                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                    newKeyCode = event.nativeKeyEvent.keyCode
-                                    capturing = false
-                                    true
-                                } else false
-                            },
-                        contentAlignment = Alignment.Center
-                    ) { Text("Pressione a tecla…", color = TextSecondary) }
+
+                Text("Tamanho do botão", color = TextSecondary, style = MaterialTheme.typography.labelLarge)
+                androidx.compose.material3.Slider(value = sizePercent, onValueChange = { sizePercent = it; onChangeSize(it) }, valueRange = 0.6f..1.8f)
+
+                Spacer(Modifier.height(6.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(selected = inputMode == InputMode.TECLADO, onClick = { inputMode = InputMode.TECLADO }, label = { Text("Teclado") })
+                    FilterChip(selected = inputMode == InputMode.MOUSE, onClick = { inputMode = InputMode.MOUSE; capturing = false }, label = { Text("Mouse") })
+                }
+                Spacer(Modifier.height(10.dp))
+
+                if (inputMode == InputMode.TECLADO) {
+                    if (capturing) {
+                        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .focusRequester(focusRequester)
+                                .focusable()
+                                .onKeyEvent { event ->
+                                    if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                        newKeyCode = event.nativeKeyEvent.keyCode
+                                        capturing = false
+                                        true
+                                    } else false
+                                },
+                            contentAlignment = Alignment.Center
+                        ) { Text("Pressione a tecla…", color = TextSecondary) }
+                    } else {
+                        TextButton(onClick = { capturing = true }) { Text("Tecla: " + keyLabelFor(newKeyCode)) }
+                    }
                 } else {
-                    TextButton(onClick = { capturing = true }) {
-                        Text("Tecla: " + KeyEvent.keyCodeToString(newKeyCode).removePrefix("KEYCODE_"))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = newKeyCode == MouseButtons.LEFT, onClick = { newKeyCode = MouseButtons.LEFT }, label = { Text("Esquerdo") })
+                        FilterChip(selected = newKeyCode == MouseButtons.RIGHT, onClick = { newKeyCode = MouseButtons.RIGHT }, label = { Text("Direito") })
+                        FilterChip(selected = newKeyCode == MouseButtons.MIDDLE, onClick = { newKeyCode = MouseButtons.MIDDLE }, label = { Text("Meio") })
                     }
                 }
                 Spacer(Modifier.height(10.dp))
@@ -350,6 +396,7 @@ private fun EditBindingDialog(
 private fun AddBindingDialog(onDismiss: () -> Unit, onConfirm: (String, Int, GestureType) -> Unit) {
     var label by remember { mutableStateOf("") }
     var gestureType by remember { mutableStateOf(GestureType.TAP) }
+    var inputMode by remember { mutableStateOf(InputMode.TECLADO) }
     var capturedKeyCode by remember { mutableStateOf<Int?>(null) }
     var capturing by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -362,38 +409,59 @@ private fun AddBindingDialog(onDismiss: () -> Unit, onConfirm: (String, Int, Ges
                 OutlinedTextField(value = label, onValueChange = { label = it }, label = { Text("Nome da ação") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 Spacer(Modifier.height(10.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    listOf(GestureType.TAP, GestureType.HOLD, GestureType.LOOK_TOGGLE).forEach { type ->
+                    listOf(GestureType.TAP, GestureType.HOLD, GestureType.LOOK_TOGGLE, GestureType.ANALOG_STICK).forEach { type ->
                         FilterChip(selected = gestureType == type, onClick = { gestureType = type }, label = { Text(type.displayName) })
                     }
                 }
                 Spacer(Modifier.height(10.dp))
-                if (capturing) {
-                    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(56.dp)
-                            .focusRequester(focusRequester)
-                            .focusable()
-                            .onKeyEvent { event ->
-                                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
-                                    capturedKeyCode = event.nativeKeyEvent.keyCode
-                                    capturing = false
-                                    true
-                                } else false
-                            },
-                        contentAlignment = Alignment.Center
-                    ) { Text("Pressione a tecla ou clique do mouse…", color = TextSecondary) }
-                } else {
-                    val keyLabel = capturedKeyCode?.let { KeyEvent.keyCodeToString(it).removePrefix("KEYCODE_") } ?: "Nenhuma tecla definida"
-                    TextButton(onClick = { capturing = true }) { Text("Definir tecla: $keyLabel") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = inputMode == InputMode.TECLADO,
+                        onClick = { inputMode = InputMode.TECLADO; capturedKeyCode = null },
+                        label = { Text("Teclado") }
+                    )
+                    FilterChip(
+                        selected = inputMode == InputMode.MOUSE,
+                        onClick = { inputMode = InputMode.MOUSE; capturedKeyCode = null; capturing = false },
+                        label = { Text("Mouse") }
+                    )
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    "Dica: o clique direito do mouse costuma ser reconhecido como \"BACK\" pelo Android.",
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.labelLarge
-                )
+                Spacer(Modifier.height(10.dp))
+                if (inputMode == InputMode.TECLADO) {
+                    if (capturing) {
+                        LaunchedEffect(Unit) { focusRequester.requestFocus() }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                                .focusRequester(focusRequester)
+                                .focusable()
+                                .onKeyEvent { event ->
+                                    if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                                        capturedKeyCode = event.nativeKeyEvent.keyCode
+                                        capturing = false
+                                        true
+                                    } else false
+                                },
+                            contentAlignment = Alignment.Center
+                        ) { Text("Pressione a tecla…", color = TextSecondary) }
+                    } else {
+                        val keyLabel = capturedKeyCode?.let { keyLabelFor(it) } ?: "Nenhuma tecla definida"
+                        TextButton(onClick = { capturing = true }) { Text("Definir tecla: $keyLabel") }
+                    }
+                } else {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = capturedKeyCode == MouseButtons.LEFT, onClick = { capturedKeyCode = MouseButtons.LEFT }, label = { Text("Esquerdo") })
+                        FilterChip(selected = capturedKeyCode == MouseButtons.RIGHT, onClick = { capturedKeyCode = MouseButtons.RIGHT }, label = { Text("Direito") })
+                        FilterChip(selected = capturedKeyCode == MouseButtons.MIDDLE, onClick = { capturedKeyCode = MouseButtons.MIDDLE }, label = { Text("Meio") })
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        "O clique do mouse só é reconhecido enquanto a Câmera (mouse) estiver ativa no painel flutuante.",
+                        color = TextSecondary,
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                }
             }
         },
         confirmButton = {

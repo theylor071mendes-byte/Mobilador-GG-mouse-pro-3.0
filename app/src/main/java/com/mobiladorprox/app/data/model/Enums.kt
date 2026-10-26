@@ -9,7 +9,10 @@ enum class GestureType(val displayName: String) {
     HOLD("Pressionar e segurar"),
 
     /** Alterna a captura do mouse para controlar a câmera (visão/mira livre). */
-    LOOK_TOGGLE("Alternar câmera (mouse)")
+    LOOK_TOGGLE("Alternar câmera (mouse)"),
+
+    /** Analógico virtual único controlado por 4 teclas (ex.: W/A/S/D), com direção combinada. */
+    ANALOG_STICK("Analógico virtual (WASD)")
 }
 
 /**

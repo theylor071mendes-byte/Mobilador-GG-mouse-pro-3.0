@@ -31,6 +31,10 @@ object MapperState {
     @Volatile
     var cameraBinding: KeyBindingEntity? = null
 
+    /** Vínculo do analógico virtual (WASD combinado), se o perfil tiver um. */
+    @Volatile
+    var analogStickBinding: KeyBindingEntity? = null
+
     /** Multiplicador global de sensibilidade do mouse (1.00 a 20.00), configurado em "Configurações do mouse". */
     @Volatile
     var mouseSensitivity: Float = 5f
@@ -43,9 +47,10 @@ object MapperState {
         activeProfileId = profile.id
         activeProfileName = profile.profileName
         bindingsByKeyCode = bindings
-            .filter { it.gestureType != GestureType.LOOK_TOGGLE.name }
+            .filter { it.gestureType != GestureType.LOOK_TOGGLE.name && it.gestureType != GestureType.ANALOG_STICK.name }
             .associateBy { it.keyCode }
         cameraBinding = bindings.firstOrNull { it.gestureType == GestureType.LOOK_TOGGLE.name }
+        analogStickBinding = bindings.firstOrNull { it.gestureType == GestureType.ANALOG_STICK.name }
     }
 
     fun clear() {
@@ -55,5 +60,6 @@ object MapperState {
         activeProfileName = ""
         bindingsByKeyCode = emptyMap()
         cameraBinding = null
+        analogStickBinding = null
     }
 }

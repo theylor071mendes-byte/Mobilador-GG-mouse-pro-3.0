@@ -32,6 +32,12 @@ class MapperAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private val activeHolds = mutableMapOf<String, HoldState>()
 
+    // Analógico virtual (WASD combinado).
+    private val pressedWasd = mutableSetOf<Int>()
+    private var analogHoldState: HoldState? = null
+    private var analogCurrentX = 0f
+    private var analogCurrentY = 0f
+
     private data class HoldState(var stroke: GestureDescription.StrokeDescription, var active: Boolean)
 
     override fun onServiceConnected() {
@@ -48,6 +54,8 @@ class MapperAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         instance = null
+        pressedWasd.clear()
+        analogHoldState = null
         MapperState.clear()
         return super.onUnbind(intent)
     }
@@ -62,6 +70,11 @@ class MapperAccessibilityService : AccessibilityService() {
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
         if (!MapperState.isMapperActive) return super.onKeyEvent(event)
+
+        if (event.keyCode in WASD_CODES && MapperState.analogStickBinding != null) {
+            handleAnalogKey(event)
+            return true
+        }
 
         val binding = MapperState.bindingsByKeyCode[event.keyCode] ?: return super.onKeyEvent(event)
         val gestureType = runCatching { GestureType.valueOf(binding.gestureType) }.getOrNull()
@@ -87,7 +100,103 @@ class MapperAccessibilityService : AccessibilityService() {
                 // Tratado pela UI/overlay (alterna a captura do mouse), não por gesto de toque.
                 return false
             }
+            GestureType.ANALOG_STICK -> {
+                // Tratado exclusivamente via WASD acima; outras teclas não acionam o analógico.
+                return false
+            }
         }
+    }
+
+    /**
+     * Chamado pelo [com.mobiladorprox.app.service.OverlayService] quando o clique de um
+     * mouse físico é detectado durante a captura do ponteiro (ver [PointerCaptureView]).
+     * Reaproveita o mesmo mapa de vínculos do teclado: cliques usam códigos sintéticos
+     * negativos ([com.mobiladorprox.app.data.model.MouseButtons]) que nunca colidem com um
+     * KeyEvent.KEYCODE_* real.
+     */
+    fun handleMouseButton(code: Int, pressed: Boolean) {
+        if (!MapperState.isMapperActive) return
+        val binding = MapperState.bindingsByKeyCode[code] ?: return
+        val gestureType = runCatching { GestureType.valueOf(binding.gestureType) }.getOrNull() ?: return
+        when (gestureType) {
+            GestureType.TAP -> if (pressed) dispatchTap(binding.xPercent, binding.yPercent)
+            GestureType.HOLD -> {
+                if (pressed) startHold(binding.actionId, binding.xPercent, binding.yPercent)
+                else stopHold(binding.actionId)
+            }
+            GestureType.LOOK_TOGGLE, GestureType.ANALOG_STICK -> Unit
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Analógico virtual (WASD combinado)
+    // ---------------------------------------------------------------------
+
+    private fun handleAnalogKey(event: KeyEvent) {
+        when (event.action) {
+            KeyEvent.ACTION_DOWN -> pressedWasd.add(event.keyCode)
+            KeyEvent.ACTION_UP -> pressedWasd.remove(event.keyCode)
+        }
+        updateAnalogStick()
+    }
+
+    private fun updateAnalogStick() {
+        val binding = MapperState.analogStickBinding ?: return
+        var dx = 0f
+        var dy = 0f
+        if (KeyEvent.KEYCODE_W in pressedWasd) dy -= 1f
+        if (KeyEvent.KEYCODE_S in pressedWasd) dy += 1f
+        if (KeyEvent.KEYCODE_A in pressedWasd) dx -= 1f
+        if (KeyEvent.KEYCODE_D in pressedWasd) dx += 1f
+
+        if (dx == 0f && dy == 0f) {
+            releaseAnalogStick()
+            return
+        }
+
+        val length = kotlin.math.hypot(dx, dy)
+        val (centerX, centerY) = percentToPixels(binding.xPercent, binding.yPercent)
+        val targetX = centerX + (dx / length) * ANALOG_RADIUS_PX
+        val targetY = centerY + (dy / length) * ANALOG_RADIUS_PX
+
+        val state = analogHoldState
+        if (state == null) {
+            // Primeiro toque: desce no centro do analógico e já arrasta até a direção pedida.
+            val path = Path().apply { moveTo(centerX, centerY); lineTo(targetX, targetY) }
+            val stroke = GestureDescription.StrokeDescription(path, 0, ANALOG_MOVE_MS, true)
+            analogHoldState = HoldState(stroke, true)
+            analogCurrentX = targetX
+            analogCurrentY = targetY
+            dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), null, null)
+            scheduleAnalogContinuation()
+        } else {
+            // Mudou de direção (ex.: soltou D, continua segurando W): arrasta do ponto
+            // atual até o novo alvo, sem soltar o toque.
+            val path = Path().apply { moveTo(analogCurrentX, analogCurrentY); lineTo(targetX, targetY) }
+            val nextStroke = state.stroke.continueStroke(path, 0, ANALOG_MOVE_MS, true)
+            state.stroke = nextStroke
+            analogCurrentX = targetX
+            analogCurrentY = targetY
+            dispatchGesture(GestureDescription.Builder().addStroke(nextStroke).build(), null, null)
+        }
+    }
+
+    private fun scheduleAnalogContinuation() {
+        handler.postDelayed({
+            val state = analogHoldState ?: return@postDelayed
+            if (!state.active) return@postDelayed
+            // Mantém o toque parado na posição atual (sem andar) até a próxima mudança de tecla.
+            val path = Path().apply { moveTo(analogCurrentX, analogCurrentY) }
+            val nextStroke = state.stroke.continueStroke(path, 0, HOLD_SEGMENT_MS, true)
+            state.stroke = nextStroke
+            dispatchGesture(GestureDescription.Builder().addStroke(nextStroke).build(), null, null)
+            scheduleAnalogContinuation()
+        }, HOLD_SEGMENT_MS - HOLD_RENEW_MARGIN_MS)
+    }
+
+    private fun releaseAnalogStick() {
+        analogHoldState?.active = false
+        analogHoldState = null
     }
 
     /** Converte porcentagem de tela (0f..1f) em pixels reais do aparelho. */
@@ -154,6 +263,8 @@ class MapperAccessibilityService : AccessibilityService() {
         super.onDestroy()
         handler.removeCallbacksAndMessages(null)
         activeHolds.clear()
+        pressedWasd.clear()
+        analogHoldState = null
         instance = null
         MapperState.clear()
     }
@@ -164,6 +275,12 @@ class MapperAccessibilityService : AccessibilityService() {
         private const val HOLD_SEGMENT_MS = 300L
         private const val HOLD_RENEW_MARGIN_MS = 60L
         private const val LOOK_STROKE_MS = 16L
+        private const val ANALOG_RADIUS_PX = 140f
+        private const val ANALOG_MOVE_MS = 60L
+
+        private val WASD_CODES = setOf(
+            KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_D
+        )
 
         @Volatile
         var instance: MapperAccessibilityService? = null
