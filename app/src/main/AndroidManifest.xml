@@ -21,6 +21,15 @@
         android:name="android.hardware.usb.host"
         android:required="false" />
 
+    <!-- Necessário no Android 11+ para que o app possa listar os demais
+         aplicativos instalados na tela "+ Adicionar jogo" (visibilidade de pacotes). -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".MobiladorApplication"
         android:allowBackup="true"

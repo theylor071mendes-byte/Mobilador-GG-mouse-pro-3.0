@@ -22,20 +22,20 @@ import androidx.core.app.NotificationCompat
 import com.mobiladorprox.app.MainActivity
 import com.mobiladorprox.app.MobiladorApplication
 import com.mobiladorprox.app.R
-import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
  * Serviço em primeiro plano responsável pelo painel flutuante: o botão que
- * pode ser arrastado pela tela, o mini-painel de controles (Mapeador,
- * Câmera, Modo edição) e as marcações arrastáveis usadas para calibrar a
- * posição de cada botão do jogo na tela do aparelho.
+ * pode ser arrastado pela tela e o mini-painel (Mapeador / Câmera).
+ * A edição visual do keymap (posição dos botões) acontece dentro do app,
+ * na tela "Editar Keymaps" — este serviço só executa o perfil já salvo.
  */
 class OverlayService : Service() {
 
@@ -44,14 +44,16 @@ class OverlayService : Service() {
 
     private var handleView: View? = null
     private var handleParams: WindowManager.LayoutParams? = null
-
     private var panelView: View? = null
     private var captureView: PointerCaptureView? = null
-    private val markerViews = mutableListOf<View>()
 
-    private var editModeActive = false
+    // Suavização exponencial aplicada ao movimento bruto do mouse antes de
+    // virar gesto de câmera (ver PerformanceProfile.lookResponsiveness).
+    private var smoothedDx = 0f
+    private var smoothedDy = 0f
 
     private val repository get() = (application as MobiladorApplication).repository
+    private val preferences get() = (application as MobiladorApplication).preferences
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,6 +67,7 @@ class OverlayService : Service() {
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         startForegroundNotification()
         addFloatingHandle()
+        loadGlobalSettings()
         isRunning = true
     }
 
@@ -81,17 +84,12 @@ class OverlayService : Service() {
             loadProfileIntoState(profileId, activate = true)
         }
 
-        if (intent?.getBooleanExtra(EXTRA_START_EDIT_MODE, false) == true) {
-            enterEditMode()
-        }
-
         return START_STICKY
     }
 
     override fun onDestroy() {
         super.onDestroy()
         removeCaptureWindow()
-        removeMarkerViews()
         removePanel()
         handleView?.let { safeRemoveView(it) }
         handleView = null
@@ -232,21 +230,13 @@ class OverlayService : Service() {
             labelOn = "Mapeador: ATIVO",
             labelOff = "Mapeador: INATIVO",
             isOn = { MapperState.isMapperActive },
-            onToggle = {
-                MapperState.isMapperActive = !MapperState.isMapperActive
-            }
+            onToggle = { MapperState.isMapperActive = !MapperState.isMapperActive }
         ))
         container.addView(panelButton(
             labelOn = "Câmera (mouse): ATIVA",
             labelOff = "Câmera (mouse): INATIVA",
             isOn = { MapperState.isCameraCaptureActive },
             onToggle = { toggleCameraCapture() }
-        ))
-        container.addView(panelButton(
-            labelOn = "Modo edição: ATIVO",
-            labelOff = "Modo edição: INATIVO",
-            isOn = { editModeActive },
-            onToggle = { toggleEditMode() }
         ))
         container.addView(simpleButton("Fechar painel") { removePanel() })
         container.addView(simpleButton("Encerrar mapeador") { stopSelf() })
@@ -305,7 +295,7 @@ class OverlayService : Service() {
     }
 
     // ---------------------------------------------------------------------
-    // Perfil ativo
+    // Perfil ativo e preferências globais
     // ---------------------------------------------------------------------
 
     private fun loadProfileIntoState(profileId: Long, activate: Boolean) {
@@ -314,6 +304,13 @@ class OverlayService : Service() {
             val bindings = repository.getBindingsOnce(profileId)
             MapperState.loadProfile(profile, bindings)
             if (activate) MapperState.isMapperActive = true
+        }
+    }
+
+    private fun loadGlobalSettings() {
+        serviceScope.launch {
+            MapperState.mouseSensitivity = preferences.mouseSensitivity.first()
+            MapperState.lookResponsiveness = preferences.performanceProfile.first().lookResponsiveness
         }
     }
 
@@ -336,9 +333,9 @@ class OverlayService : Service() {
             return
         }
 
-        val view = PointerCaptureView(this) { dx, dy ->
-            onPointerDelta(dx, dy)
-        }
+        smoothedDx = 0f
+        smoothedDy = 0f
+        val view = PointerCaptureView(this) { dx, dy -> onPointerDelta(dx, dy) }
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -364,114 +361,24 @@ class OverlayService : Service() {
         MapperState.isCameraCaptureActive = false
     }
 
+    /**
+     * Aplica sensibilidade global e suavização exponencial (média móvel) ao
+     * movimento bruto do mouse antes de virar gesto de câmera. A suavização
+     * reduz o quanto um tremor da mão é percebido no movimento gerado — não
+     * elimina qualquer tremor do próprio jogo ou da mira em si.
+     */
     private fun onPointerDelta(rawDx: Float, rawDy: Float) {
+        val alpha = MapperState.lookResponsiveness.coerceIn(0.05f, 1f)
+        smoothedDx += (rawDx - smoothedDx) * alpha
+        smoothedDy += (rawDy - smoothedDy) * alpha
+
         val binding = MapperState.cameraBinding
         val centerX = binding?.xPercent ?: 0.6f
         val centerY = binding?.yPercent ?: 0.45f
-        val scaledDx = rawDx * MapperState.sensitivityHorizontal * MapperState.dpiMultiplier
-        val scaledDy = rawDy * MapperState.sensitivityVertical * MapperState.dpiMultiplier
+        val sensitivity = MapperState.mouseSensitivity / 5f // 5.0 é o valor neutro (~1x)
+        val scaledDx = smoothedDx * sensitivity
+        val scaledDy = smoothedDy * sensitivity
         MapperAccessibilityService.instance?.dispatchLookSwipe(centerX, centerY, scaledDx, scaledDy)
-    }
-
-    // ---------------------------------------------------------------------
-    // Modo de edição (calibrar posição dos botões)
-    // ---------------------------------------------------------------------
-
-    private fun toggleEditMode() {
-        if (editModeActive) enterNonEditMode() else enterEditMode()
-    }
-
-    private fun enterEditMode() {
-        val profileId = MapperState.activeProfileId ?: return
-        editModeActive = true
-        serviceScope.launch {
-            val bindings = repository.getBindingsOnce(profileId)
-            removeMarkerViews()
-            bindings.forEach { addMarkerView(it) }
-        }
-    }
-
-    private fun enterNonEditMode() {
-        editModeActive = false
-        removeMarkerViews()
-    }
-
-    private fun addMarkerView(binding: KeyBindingEntity) {
-        val metrics = resources.displayMetrics
-        val size = dpToPx(40)
-        val marker = TextView(this).apply {
-            text = binding.label.take(2).uppercase()
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#CC9D4DFF"))
-                setStroke(dpToPx(2), Color.WHITE)
-            }
-        }
-
-        val params = WindowManager.LayoutParams(
-            size, size,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
-            PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.TOP or Gravity.START
-            x = (binding.xPercent * metrics.widthPixels).roundToInt() - size / 2
-            y = (binding.yPercent * metrics.heightPixels).roundToInt() - size / 2
-        }
-
-        var initialX = 0
-        var initialY = 0
-        var initialTouchX = 0f
-        var initialTouchY = 0f
-
-        marker.setOnTouchListener { _, event ->
-            when (event.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    initialX = params.x
-                    initialY = params.y
-                    initialTouchX = event.rawX
-                    initialTouchY = event.rawY
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    params.x = initialX + (event.rawX - initialTouchX).roundToInt()
-                    params.y = initialY + (event.rawY - initialTouchY).roundToInt()
-                    safeUpdateView(marker, params)
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    val newXPercent = ((params.x + size / 2).toFloat() / metrics.widthPixels).coerceIn(0f, 1f)
-                    val newYPercent = ((params.y + size / 2).toFloat() / metrics.heightPixels).coerceIn(0f, 1f)
-                    persistMarkerPosition(binding, newXPercent, newYPercent)
-                    true
-                }
-                else -> false
-            }
-        }
-
-        runCatching {
-            windowManager.addView(marker, params)
-            markerViews.add(marker)
-        }
-    }
-
-    private fun persistMarkerPosition(binding: KeyBindingEntity, xPercent: Float, yPercent: Float) {
-        serviceScope.launch {
-            repository.updateBinding(binding.copy(xPercent = xPercent, yPercent = yPercent))
-            val profileId = MapperState.activeProfileId
-            if (profileId != null) {
-                val profile = repository.getProfile(profileId)
-                val bindings = repository.getBindingsOnce(profileId)
-                if (profile != null) MapperState.loadProfile(profile, bindings)
-            }
-        }
-    }
-
-    private fun removeMarkerViews() {
-        markerViews.forEach { safeRemoveView(it) }
-        markerViews.clear()
     }
 
     // ---------------------------------------------------------------------
@@ -493,7 +400,6 @@ class OverlayService : Service() {
         private const val NOTIFICATION_ID = 7421
         const val ACTION_STOP = "com.mobiladorprox.app.action.STOP_OVERLAY"
         const val EXTRA_PROFILE_ID = "extra_profile_id"
-        const val EXTRA_START_EDIT_MODE = "extra_start_edit_mode"
 
         private val COLOR_NEON_PURPLE = Color.parseColor("#9D4DFF")
         private val COLOR_NEON_BLUE = Color.parseColor("#00E5FF")

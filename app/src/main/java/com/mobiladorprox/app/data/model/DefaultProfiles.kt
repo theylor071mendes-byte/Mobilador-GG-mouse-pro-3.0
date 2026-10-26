@@ -2,14 +2,6 @@ package com.mobiladorprox.app.data.model
 
 import android.view.KeyEvent
 
-/** Conjunto de valores numéricos aplicado por uma predefinição de sensibilidade. */
-data class PresetValues(
-    val sensitivityHorizontal: Float,
-    val sensitivityVertical: Float,
-    val cursorSpeed: Float,
-    val dpiMultiplier: Float
-)
-
 /** Modelo de um vínculo de tecla usado para semear um novo perfil. */
 data class BindingTemplate(
     val actionId: String,
@@ -21,22 +13,14 @@ data class BindingTemplate(
 )
 
 /**
- * Valores padrão dos perfis e predefinições. Os números abaixo são apenas
- * pontos de partida configuráveis — não representam nenhuma promessa de
- * desempenho, apenas combinações diferentes de sensibilidade.
+ * Conjunto padrão de vínculos de tecla usado ao criar um perfil novo ou ao
+ * restaurar um perfil existente. Pensado para jogos de tiro em terceira/
+ * primeira pessoa no estilo battle royale (como o Free Fire), mas totalmente
+ * editável depois — as posições são apenas um ponto de partida calibrável.
  */
 object DefaultProfiles {
 
-    fun presetValues(preset: PresetMode): PresetValues = when (preset) {
-        PresetMode.PRECISAO -> PresetValues(0.35f, 0.35f, 0.6f, 1.2f)
-        PresetMode.RUSH -> PresetValues(0.85f, 0.8f, 1.3f, 1.6f)
-        PresetMode.EQUILIBRIO -> PresetValues(0.6f, 0.55f, 1.0f, 1.4f)
-        PresetMode.LONGA_DISTANCIA -> PresetValues(0.3f, 0.45f, 0.7f, 1.1f)
-        PresetMode.PERSONALIZADO -> PresetValues(0.6f, 0.55f, 1.0f, 1.4f)
-    }
-
-    /** Bindings padrão para o perfil Free Fire. Posições calibráveis pelo usuário. */
-    fun freeFireBindings(): List<BindingTemplate> = listOf(
+    fun defaultBindings(): List<BindingTemplate> = listOf(
         BindingTemplate("fire", "Atirar", KeyEvent.KEYCODE_SPACE, GestureType.TAP, 0.85f, 0.80f),
         BindingTemplate("aim", "Mirar / Zoom", KeyEvent.KEYCODE_ALT_RIGHT, GestureType.HOLD, 0.70f, 0.78f),
         BindingTemplate("jump", "Pular", KeyEvent.KEYCODE_C, GestureType.TAP, 0.78f, 0.60f),
@@ -49,21 +33,4 @@ object DefaultProfiles {
         BindingTemplate("move_right", "Mover à direita (D)", KeyEvent.KEYCODE_D, GestureType.HOLD, 0.26f, 0.78f),
         BindingTemplate("camera", "Suspender mouse / Câmera", KeyEvent.KEYCODE_CAPS_LOCK, GestureType.LOOK_TOGGLE, 0.60f, 0.45f)
     )
-
-    /** Bindings genéricos de exemplo, pensados para serem ajustados pelo jogador. */
-    fun genericGameBindings(): List<BindingTemplate> = listOf(
-        BindingTemplate("action_primary", "Ação principal", KeyEvent.KEYCODE_SPACE, GestureType.TAP, 0.85f, 0.80f),
-        BindingTemplate("action_secondary", "Ação secundária", KeyEvent.KEYCODE_E, GestureType.TAP, 0.70f, 0.78f),
-        BindingTemplate("menu", "Abrir menu", KeyEvent.KEYCODE_TAB, GestureType.TAP, 0.95f, 0.06f),
-        BindingTemplate("camera", "Suspender mouse / Câmera", KeyEvent.KEYCODE_CAPS_LOCK, GestureType.LOOK_TOGGLE, 0.60f, 0.45f)
-    )
-
-    /** Perfil personalizado começa sem nenhum vínculo — o usuário monta do zero. */
-    fun emptyBindings(): List<BindingTemplate> = emptyList()
-
-    fun bindingsFor(gameType: GameType): List<BindingTemplate> = when (gameType) {
-        GameType.FREE_FIRE -> freeFireBindings()
-        GameType.OUTRO_JOGO -> genericGameBindings()
-        GameType.PERSONALIZADO -> emptyBindings()
-    }
 }

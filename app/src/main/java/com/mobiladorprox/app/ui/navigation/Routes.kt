@@ -2,10 +2,12 @@ package com.mobiladorprox.app.ui.navigation
 
 object Routes {
     const val HOME = "home"
-    const val PROFILES = "profiles"
+    const val GAME_PICKER = "game_picker"
+    const val MENU = "menu"
+    const val KEYMAPS = "keymaps/{profileId}"
     const val OPTIMIZATION = "optimization"
-    const val PERMISSIONS = "permissions"
-    const val PROFILE_EDITOR = "profile_editor/{profileId}"
+    const val PERFORMANCE = "performance"
+    const val MOUSE_SETTINGS = "mouse_settings"
 
-    fun profileEditor(profileId: Long) = "profile_editor/$profileId"
+    fun keymaps(profileId: Long) = "keymaps/$profileId"
 }

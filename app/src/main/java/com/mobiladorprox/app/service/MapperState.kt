@@ -5,10 +5,11 @@ import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
 import com.mobiladorprox.app.data.model.GestureType
 
 /**
- * Estado em memória do perfil atualmente carregado para mapeamento.
- * É alimentado pelo [com.mobiladorprox.app.service.OverlayService] (que lê o
- * perfil do banco local) e consumido pelo [MapperAccessibilityService]
- * (que não acessa o banco diretamente, apenas reage a eventos de tecla).
+ * Estado em memória do perfil (keymap) atualmente carregado e das
+ * preferências globais de mouse/desempenho. É alimentado pelo
+ * [OverlayService] (que lê o banco local e o DataStore) e consumido pelo
+ * [MapperAccessibilityService] (que não acessa persistência diretamente,
+ * apenas reage a eventos de tecla).
  */
 object MapperState {
 
@@ -30,21 +31,17 @@ object MapperState {
     @Volatile
     var cameraBinding: KeyBindingEntity? = null
 
+    /** Multiplicador global de sensibilidade do mouse (1.00 a 20.00), configurado em "Configurações do mouse". */
     @Volatile
-    var sensitivityHorizontal: Float = 0.6f
+    var mouseSensitivity: Float = 5f
 
+    /** 1f = resposta crua; valores menores suavizam o movimento da câmera. Vem do Perfil de desempenho. */
     @Volatile
-    var sensitivityVertical: Float = 0.55f
-
-    @Volatile
-    var dpiMultiplier: Float = 1.4f
+    var lookResponsiveness: Float = 0.65f
 
     fun loadProfile(profile: GameProfileEntity, bindings: List<KeyBindingEntity>) {
         activeProfileId = profile.id
-        activeProfileName = profile.name
-        sensitivityHorizontal = profile.sensitivityHorizontal
-        sensitivityVertical = profile.sensitivityVertical
-        dpiMultiplier = profile.dpiMultiplier
+        activeProfileName = profile.profileName
         bindingsByKeyCode = bindings
             .filter { it.gestureType != GestureType.LOOK_TOGGLE.name }
             .associateBy { it.keyCode }

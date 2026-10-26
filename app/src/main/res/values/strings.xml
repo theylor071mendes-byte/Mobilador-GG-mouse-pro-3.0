@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">Mobilador Pro X</string>
+    <string name="app_name">Mapeador Mobilador</string>
 
     <string name="notification_channel_name">Mapeador ativo</string>
-    <string name="notification_title">MOBILADOR PRO X</string>
+    <string name="notification_title">MAPEADOR MOBILADOR</string>
     <string name="notification_text">Painel flutuante ativo — toque para abrir o app</string>
 
     <string name="accessibility_service_description">Permite usar teclas de um teclado físico (USB ou Bluetooth) para simular toques na tela, de acordo com o perfil escolhido no app. Não lê o conteúdo da tela, não acessa a internet e não lê dados de outros aplicativos.</string>

@@ -3,61 +3,49 @@ package com.mobiladorprox.app.data.repository
 import com.mobiladorprox.app.data.db.ProfileDao
 import com.mobiladorprox.app.data.db.entity.GameProfileEntity
 import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
+import com.mobiladorprox.app.data.model.BindingTemplate
 import com.mobiladorprox.app.data.model.DefaultProfiles
-import com.mobiladorprox.app.data.model.GameType
-import com.mobiladorprox.app.data.model.PresetMode
+import com.mobiladorprox.app.data.model.GestureType
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Ponto único de acesso aos dados de perfis e vínculos de tecla.
+ * Ponto único de acesso aos dados de perfis (keymaps) e vínculos de tecla.
  * Toda a persistência é local (Room) e sobrevive ao fechamento do app.
  */
 class ProfileRepository(private val dao: ProfileDao) {
 
     fun observeProfiles(): Flow<List<GameProfileEntity>> = dao.observeProfiles()
 
-    fun observeBindings(profileId: Long): Flow<List<KeyBindingEntity>> =
-        dao.observeBindings(profileId)
+    fun observeProfilesForPackage(packageName: String): Flow<List<GameProfileEntity>> =
+        dao.observeProfilesForPackage(packageName)
+
+    fun observeBindings(profileId: Long): Flow<List<KeyBindingEntity>> = dao.observeBindings(profileId)
 
     suspend fun getProfile(profileId: Long): GameProfileEntity? = dao.getProfile(profileId)
 
     fun observeProfile(profileId: Long): Flow<GameProfileEntity?> = dao.observeProfile(profileId)
 
-    suspend fun getBindingsOnce(profileId: Long): List<KeyBindingEntity> =
-        dao.getBindingsOnce(profileId)
+    suspend fun getBindingsOnce(profileId: Long): List<KeyBindingEntity> = dao.getBindingsOnce(profileId)
 
-    /** Cria os três perfis padrão na primeira execução do app, se ainda não existirem. */
-    suspend fun seedDefaultProfilesIfEmpty() {
-        if (dao.countProfiles() > 0) return
-        createProfile("Free Fire", GameType.FREE_FIRE, PresetMode.EQUILIBRIO, isDefault = true)
-        createProfile("Outro jogo (exemplo)", GameType.OUTRO_JOGO, PresetMode.EQUILIBRIO, isDefault = true)
-        createProfile("Personalizado", GameType.PERSONALIZADO, PresetMode.PERSONALIZADO, isDefault = true)
+    /** Retorna o primeiro perfil salvo para o jogo, criando um com os padrões se não existir nenhum. */
+    suspend fun getOrCreateProfileForGame(packageName: String, gameLabel: String): GameProfileEntity {
+        dao.getFirstProfileForPackage(packageName)?.let { return it }
+        val id = createProfile("Padrão", packageName, gameLabel)
+        return dao.getProfile(id)!!
     }
 
-    suspend fun createProfile(
-        name: String,
-        gameType: GameType,
-        preset: PresetMode = PresetMode.EQUILIBRIO,
-        isDefault: Boolean = false
-    ): Long {
-        val values = DefaultProfiles.presetValues(preset)
+    suspend fun createProfile(profileName: String, packageName: String, gameLabel: String): Long {
         val entity = GameProfileEntity(
-            name = name,
-            gameType = gameType.name,
-            sensitivityHorizontal = values.sensitivityHorizontal,
-            sensitivityVertical = values.sensitivityVertical,
-            cursorSpeed = values.cursorSpeed,
-            dpiMultiplier = values.dpiMultiplier,
-            presetMode = preset.name,
-            isDefault = isDefault
+            profileName = profileName,
+            packageName = packageName,
+            gameLabel = gameLabel
         )
         val newId = dao.insertProfile(entity)
-        seedBindings(newId, gameType)
+        seedBindings(newId, DefaultProfiles.defaultBindings())
         return newId
     }
 
-    private suspend fun seedBindings(profileId: Long, gameType: GameType) {
-        val templates = DefaultProfiles.bindingsFor(gameType)
+    private suspend fun seedBindings(profileId: Long, templates: List<BindingTemplate>) {
         if (templates.isEmpty()) return
         val bindings = templates.map {
             KeyBindingEntity(
@@ -77,8 +65,7 @@ class ProfileRepository(private val dao: ProfileDao) {
         val original = dao.getProfile(profileId) ?: return null
         val copy = original.copy(
             id = 0,
-            name = newName,
-            isDefault = false,
+            profileName = newName,
             createdAt = System.currentTimeMillis(),
             updatedAt = System.currentTimeMillis()
         )
@@ -92,70 +79,30 @@ class ProfileRepository(private val dao: ProfileDao) {
 
     suspend fun renameProfile(profileId: Long, newName: String) {
         val profile = dao.getProfile(profileId) ?: return
-        dao.updateProfile(profile.copy(name = newName, updatedAt = System.currentTimeMillis()))
+        dao.updateProfile(profile.copy(profileName = newName, updatedAt = System.currentTimeMillis()))
     }
 
     suspend fun deleteProfile(profileId: Long) {
         dao.deleteProfile(profileId)
     }
 
-    suspend fun updateProfileSettings(
-        profileId: Long,
-        sensitivityHorizontal: Float,
-        sensitivityVertical: Float,
-        cursorSpeed: Float,
-        dpiMultiplier: Float,
-        presetMode: PresetMode
-    ) {
-        val profile = dao.getProfile(profileId) ?: return
-        dao.updateProfile(
-            profile.copy(
-                sensitivityHorizontal = sensitivityHorizontal,
-                sensitivityVertical = sensitivityVertical,
-                cursorSpeed = cursorSpeed,
-                dpiMultiplier = dpiMultiplier,
-                presetMode = presetMode.name,
-                updatedAt = System.currentTimeMillis()
-            )
-        )
-    }
-
-    suspend fun applyPreset(profileId: Long, preset: PresetMode) {
-        val profile = dao.getProfile(profileId) ?: return
-        val values = DefaultProfiles.presetValues(preset)
-        dao.updateProfile(
-            profile.copy(
-                sensitivityHorizontal = values.sensitivityHorizontal,
-                sensitivityVertical = values.sensitivityVertical,
-                cursorSpeed = values.cursorSpeed,
-                dpiMultiplier = values.dpiMultiplier,
-                presetMode = preset.name,
-                updatedAt = System.currentTimeMillis()
-            )
-        )
-    }
-
-    /** Restaura sensibilidade e vínculos de tecla para os valores padrão do tipo de jogo. */
+    /** Restaura os vínculos de tecla do perfil para o conjunto padrão (apaga os atuais). */
     suspend fun restoreDefaults(profileId: Long) {
-        val profile = dao.getProfile(profileId) ?: return
-        val gameType = runCatching { GameType.valueOf(profile.gameType) }.getOrDefault(GameType.PERSONALIZADO)
-        val values = DefaultProfiles.presetValues(PresetMode.EQUILIBRIO)
-        dao.updateProfile(
-            profile.copy(
-                sensitivityHorizontal = values.sensitivityHorizontal,
-                sensitivityVertical = values.sensitivityVertical,
-                cursorSpeed = values.cursorSpeed,
-                dpiMultiplier = values.dpiMultiplier,
-                presetMode = PresetMode.EQUILIBRIO.name,
-                updatedAt = System.currentTimeMillis()
-            )
-        )
         dao.deleteBindingsForProfile(profileId)
-        seedBindings(profileId, gameType)
+        seedBindings(profileId, DefaultProfiles.defaultBindings())
+        dao.updateProfile(
+            (dao.getProfile(profileId) ?: return).copy(updatedAt = System.currentTimeMillis())
+        )
     }
 
-    suspend fun updateBinding(binding: KeyBindingEntity) {
-        dao.updateBinding(binding)
+    /** Substitui todos os vínculos do perfil pelo conjunto informado (usado por "Salvar configuração"). */
+    suspend fun replaceBindings(profileId: Long, bindings: List<KeyBindingEntity>) {
+        dao.deleteBindingsForProfile(profileId)
+        if (bindings.isNotEmpty()) {
+            dao.insertBindings(bindings.map { it.copy(id = 0, profileId = profileId) })
+        }
+        val profile = dao.getProfile(profileId) ?: return
+        dao.updateProfile(profile.copy(updatedAt = System.currentTimeMillis()))
     }
 
     suspend fun addBinding(
@@ -163,21 +110,19 @@ class ProfileRepository(private val dao: ProfileDao) {
         actionId: String,
         label: String,
         keyCode: Int,
-        gestureType: com.mobiladorprox.app.data.model.GestureType,
+        gestureType: GestureType,
         xPercent: Float,
         yPercent: Float
-    ) {
-        dao.insertBindings(
-            listOf(
-                KeyBindingEntity(
-                    profileId = profileId,
-                    actionId = actionId,
-                    label = label,
-                    keyCode = keyCode,
-                    gestureType = gestureType.name,
-                    xPercent = xPercent,
-                    yPercent = yPercent
-                )
+    ): Long {
+        return dao.insertBinding(
+            KeyBindingEntity(
+                profileId = profileId,
+                actionId = actionId,
+                label = label,
+                keyCode = keyCode,
+                gestureType = gestureType.name,
+                xPercent = xPercent,
+                yPercent = yPercent
             )
         )
     }
