@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import android.util.Log
+import android.view.Choreographer
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -22,6 +23,7 @@ import androidx.core.app.NotificationCompat
 import com.mobiladorprox.app.MainActivity
 import com.mobiladorprox.app.MobiladorApplication
 import com.mobiladorprox.app.R
+import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
 import com.mobiladorprox.app.ui.navigation.Routes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -33,10 +35,11 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
- * Serviço em primeiro plano responsável pelo painel flutuante: o botão que
- * pode ser arrastado pela tela e o mini-painel (Mapeador / Câmera).
- * A edição visual do keymap (posição dos botões) acontece dentro do app,
- * na tela "Editar Keymaps" — este serviço só executa o perfil já salvo.
+ * Serviço em primeiro plano responsável pelo painel flutuante (bola
+ * arrastável + mini-painel) e pelo editor de keymaps que roda direto em
+ * cima do jogo selecionado ([EditOverlayView]), com o jogo real visível
+ * atrás. Também captura o mouse ("Suspender mouse") e converte o
+ * movimento em gestos de câmera, acumulados por frame para suavidade.
  */
 class OverlayService : Service() {
 
@@ -48,10 +51,26 @@ class OverlayService : Service() {
     private var panelView: View? = null
     private var captureView: PointerCaptureView? = null
 
+    private var editOverlayView: EditOverlayView? = null
+    private var editOverlayParams: WindowManager.LayoutParams? = null
+    private var wasMapperActiveBeforeEdit = false
+
     // Suavização exponencial aplicada ao movimento bruto do mouse antes de
     // virar gesto de câmera (ver PerformanceProfile.lookResponsiveness).
     private var smoothedDx = 0f
     private var smoothedDy = 0f
+
+    // Acumula os deltas brutos do mouse e só despacha o gesto de câmera uma
+    // vez por frame (via Choreographer), em vez de a cada evento bruto do
+    // ponteiro — reduz a fila de gestos da Acessibilidade e deixa o
+    // movimento da câmera mais suave e com menos latência percebida.
+    private var pendingDx = 0f
+    private var pendingDy = 0f
+    private var frameFlushScheduled = false
+    private val frameCallback = Choreographer.FrameCallback {
+        frameFlushScheduled = false
+        flushPointerDelta()
+    }
 
     private val repository get() = (application as MobiladorApplication).repository
     private val preferences get() = (application as MobiladorApplication).preferences
@@ -81,8 +100,11 @@ class OverlayService : Service() {
         }
 
         val profileId = intent?.getLongExtra(EXTRA_PROFILE_ID, -1L)?.takeIf { it > 0 }
+        val startInEditMode = intent?.getBooleanExtra(EXTRA_START_EDIT_MODE, false) ?: false
         if (profileId != null) {
-            loadProfileIntoState(profileId, activate = true)
+            loadProfileIntoState(profileId, activate = !startInEditMode, onLoaded = {
+                if (startInEditMode) enterEditMode()
+            })
         }
 
         return START_STICKY
@@ -90,6 +112,11 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (frameFlushScheduled) {
+            Choreographer.getInstance().removeFrameCallback(frameCallback)
+            frameFlushScheduled = false
+        }
+        removeEditOverlay()
         removeCaptureWindow()
         removePanel()
         handleView?.let { safeRemoveView(it) }
@@ -219,17 +246,19 @@ class OverlayService : Service() {
         if (panelView != null) return
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dpToPx(16), dpToPx(16), dpToPx(16), dpToPx(16))
+            setPadding(dpToPx(14), dpToPx(14), dpToPx(14), dpToPx(14))
             background = GradientDrawable().apply {
-                cornerRadius = dpToPx(16).toFloat()
-                setColor(Color.parseColor("#1A1A26"))
+                cornerRadius = dpToPx(18).toFloat()
+                setColor(OverlayStyle.PANEL_BG)
                 setStroke(dpToPx(1), COLOR_NEON_PURPLE)
             }
         }
 
-        // Atalhos principais ao tocar na bola: Editar Keymaps e Configurações do mouse.
-        container.addView(simpleButton("Editar Keymaps") { openScreenInApp(keymapsRouteOrHome()) })
+        // Atalho principal ao tocar na bola: editar os keymaps dentro do próprio jogo.
+        container.addView(simpleButton("✎ Editar Keymaps (no jogo)") { enterEditMode() })
+        container.addView(spacerView())
         container.addView(simpleButton("Configurações do mouse") { openScreenInApp(Routes.MOUSE_SETTINGS) })
+        container.addView(spacerView())
 
         container.addView(panelButton(
             labelOn = "Mapeador: ATIVO",
@@ -237,12 +266,14 @@ class OverlayService : Service() {
             isOn = { MapperState.isMapperActive },
             onToggle = { MapperState.isMapperActive = !MapperState.isMapperActive }
         ))
+        container.addView(spacerView())
         container.addView(panelButton(
-            labelOn = "Câmera (mouse): ATIVA",
-            labelOff = "Câmera (mouse): INATIVA",
+            labelOn = "Suspender mouse: ATIVO",
+            labelOff = "Suspender mouse",
             isOn = { MapperState.isCameraCaptureActive },
             onToggle = { toggleCameraCapture() }
         ))
+        container.addView(spacerView())
         container.addView(simpleButton("Fechar painel") { removePanel() })
         container.addView(simpleButton("Encerrar mapeador") { stopSelf() })
 
@@ -267,18 +298,21 @@ class OverlayService : Service() {
         panelView = null
     }
 
+    private fun spacerView(): View = View(this).apply {
+        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(6))
+    }
+
     private fun panelButton(labelOn: String, labelOff: String, isOn: () -> Boolean, onToggle: () -> Unit): TextView {
-        val button = TextView(this)
+        val button = OverlayStyle.pillButton(this, if (isOn()) labelOn else labelOff, COLOR_NEON_BLUE, isOn())
         fun refresh() {
             button.text = if (isOn()) labelOn else labelOff
-            button.setBackgroundColor(if (isOn()) COLOR_NEON_BLUE else Color.parseColor("#2A2A3A"))
+            val bg = button.background as? GradientDrawable
+            bg?.setColor(if (isOn()) COLOR_NEON_BLUE else OverlayStyle.CHIP_IDLE_BG)
+            button.setTextColor(if (isOn()) Color.WHITE else COLOR_NEON_BLUE)
         }
-        refresh()
-        button.setTextColor(Color.WHITE)
-        button.setPadding(dpToPx(12), dpToPx(10), dpToPx(12), dpToPx(10))
         val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lp.bottomMargin = dpToPx(8)
         button.layoutParams = lp
+        button.gravity = Gravity.CENTER
         button.setOnClickListener {
             onToggle()
             refresh()
@@ -287,26 +321,85 @@ class OverlayService : Service() {
     }
 
     private fun simpleButton(label: String, action: () -> Unit): TextView {
-        val button = TextView(this)
-        button.text = label
-        button.setTextColor(Color.WHITE)
-        button.setBackgroundColor(Color.parseColor("#2A2A3A"))
-        button.setPadding(dpToPx(12), dpToPx(10), dpToPx(12), dpToPx(10))
-        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        lp.bottomMargin = dpToPx(4)
-        button.layoutParams = lp
+        val button = OverlayStyle.pillButton(this, label, COLOR_NEON_PURPLE, false)
+        button.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        button.gravity = Gravity.CENTER
         button.setOnClickListener { action() }
         return button
     }
 
     // ---------------------------------------------------------------------
-    // Atalhos para abrir o app a partir do painel flutuante
+    // Editor de keymaps dentro do jogo (overlay nativo sobre a tela real)
     // ---------------------------------------------------------------------
 
-    private fun keymapsRouteOrHome(): String {
+    private fun enterEditMode() {
+        if (editOverlayView != null) return
         val profileId = MapperState.activeProfileId
-        return if (profileId != null) Routes.keymaps(profileId) else Routes.HOME
+        if (profileId == null) {
+            openScreenInApp(Routes.GAME_PICKER)
+            return
+        }
+        removePanel()
+
+        wasMapperActiveBeforeEdit = MapperState.isMapperActive
+        MapperState.isMapperActive = false
+
+        val view = EditOverlayView(this, object : EditOverlayView.Callbacks {
+            override fun onSave(bindings: List<KeyBindingEntity>) {
+                serviceScope.launch {
+                    repository.replaceBindings(profileId, bindings)
+                    val fresh = repository.getProfile(profileId)
+                    if (fresh != null) MapperState.loadProfile(fresh, repository.getBindingsOnce(profileId))
+                }
+            }
+
+            override fun onExit() {
+                removeEditOverlay()
+            }
+
+            override fun onToggleMouseCapture() {
+                toggleCameraCapture()
+            }
+
+            override fun isMouseCaptureActive(): Boolean = MapperState.isCameraCaptureActive
+
+            override fun isAccessibilityReady(): Boolean = MapperAccessibilityService.isRunning
+        })
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+
+        runCatching {
+            windowManager.addView(view, params)
+            editOverlayView = view
+            editOverlayParams = params
+            handleView?.visibility = View.GONE
+        }.onFailure {
+            Log.e(TAG, "Falha ao abrir o editor de keymaps dentro do jogo", it)
+        }
+
+        serviceScope.launch {
+            val bindings = repository.getBindingsOnce(profileId)
+            editOverlayView?.setBindings(bindings)
+        }
     }
+
+    private fun removeEditOverlay() {
+        editOverlayView?.let { safeRemoveView(it) }
+        editOverlayView = null
+        editOverlayParams = null
+        handleView?.visibility = View.VISIBLE
+        MapperState.isMapperActive = wasMapperActiveBeforeEdit
+    }
+
+    // ---------------------------------------------------------------------
+    // Atalhos para abrir o app a partir do painel flutuante
+    // ---------------------------------------------------------------------
 
     private fun openScreenInApp(route: String) {
         val intent = Intent(this, MainActivity::class.java).apply {
@@ -320,12 +413,13 @@ class OverlayService : Service() {
     // Perfil ativo e preferências globais
     // ---------------------------------------------------------------------
 
-    private fun loadProfileIntoState(profileId: Long, activate: Boolean) {
+    private fun loadProfileIntoState(profileId: Long, activate: Boolean, onLoaded: () -> Unit = {}) {
         serviceScope.launch {
             val profile = repository.getProfile(profileId) ?: return@launch
             val bindings = repository.getBindingsOnce(profileId)
             MapperState.loadProfile(profile, bindings)
             if (activate) MapperState.isMapperActive = true
+            onLoaded()
         }
     }
 
@@ -388,12 +482,34 @@ class OverlayService : Service() {
     }
 
     /**
-     * Aplica sensibilidade global e suavização exponencial (média móvel) ao
-     * movimento bruto do mouse antes de virar gesto de câmera. A suavização
-     * reduz o quanto um tremor da mão é percebido no movimento gerado — não
-     * elimina qualquer tremor do próprio jogo ou da mira em si.
+     * Acumula o movimento bruto do mouse recebido da captura de ponteiro.
+     * Em vez de despachar um gesto a cada evento (que pode chegar em
+     * frequência muito maior que a taxa de atualização da tela, sobrecarregando
+     * a fila de gestos da Acessibilidade), agenda um único flush no próximo
+     * frame (Choreographer) — menor latência percebida e câmera mais suave.
      */
     private fun onPointerDelta(rawDx: Float, rawDy: Float) {
+        pendingDx += rawDx
+        pendingDy += rawDy
+        if (!frameFlushScheduled) {
+            frameFlushScheduled = true
+            Choreographer.getInstance().postFrameCallback(frameCallback)
+        }
+    }
+
+    /**
+     * Aplica sensibilidade global e suavização exponencial (média móvel) ao
+     * movimento acumulado do mouse antes de virar gesto de câmera. A
+     * suavização reduz o quanto um tremor da mão é percebido no movimento
+     * gerado — não elimina qualquer tremor do próprio jogo ou da mira em si.
+     */
+    private fun flushPointerDelta() {
+        val rawDx = pendingDx
+        val rawDy = pendingDy
+        pendingDx = 0f
+        pendingDy = 0f
+        if (rawDx == 0f && rawDy == 0f) return
+
         val alpha = MapperState.lookResponsiveness.coerceIn(0.05f, 1f)
         smoothedDx += (rawDx - smoothedDx) * alpha
         smoothedDy += (rawDy - smoothedDy) * alpha
@@ -426,6 +542,7 @@ class OverlayService : Service() {
         private const val NOTIFICATION_ID = 7421
         const val ACTION_STOP = "com.mobiladorprox.app.action.STOP_OVERLAY"
         const val EXTRA_PROFILE_ID = "extra_profile_id"
+        const val EXTRA_START_EDIT_MODE = "extra_start_edit_mode"
 
         private val COLOR_NEON_PURPLE = Color.parseColor("#9D4DFF")
         private val COLOR_NEON_BLUE = Color.parseColor("#00E5FF")

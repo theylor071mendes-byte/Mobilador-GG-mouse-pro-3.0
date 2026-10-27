@@ -30,19 +30,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.core.content.ContextCompat
+import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import com.mobiladorprox.app.ui.ViewModelFactory
 import com.mobiladorprox.app.ui.games.GamePickerScreen
 import com.mobiladorprox.app.ui.home.HomeScreen
 import com.mobiladorprox.app.ui.home.HomeViewModel
-import com.mobiladorprox.app.ui.keymaps.KeymapEditorScreen
 import com.mobiladorprox.app.ui.menu.MenuScreen
 import com.mobiladorprox.app.ui.mouse.MouseSettingsScreen
 import com.mobiladorprox.app.ui.navigation.Routes
@@ -52,6 +50,7 @@ import com.mobiladorprox.app.ui.theme.MobiladorProXTheme
 import com.mobiladorprox.app.ui.theme.NeonBlue
 import com.mobiladorprox.app.ui.theme.SurfaceDark
 import com.mobiladorprox.app.ui.theme.TextSecondary
+import com.mobiladorprox.app.util.GameLauncher
 
 /**
  * Activity única do app. Hospeda toda a interface em Jetpack Compose e
@@ -203,32 +202,35 @@ private fun MobiladorApp(factory: ViewModelFactory) {
             }
 
             composable(Routes.MENU) {
+                val context = LocalContext.current
                 val homeViewModel: HomeViewModel = viewModel(factory = factory)
                 val selectedGame by homeViewModel.selectedGame.collectAsStateWithLifecycle()
                 MenuScreen(
                     onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } },
                     onEditKeymaps = {
-                        val profileId = selectedGame?.profileId
-                        if (profileId != null) {
-                            navController.navigate(Routes.keymaps(profileId)) { launchSingleTop = true }
-                        } else {
-                            // Sem jogo selecionado ainda: leva para a escolha de um jogo,
-                            // já que os keymaps são configurados por jogo.
-                            navController.navigate(Routes.GAME_PICKER) { launchSingleTop = true }
+                        val game = selectedGame
+                        when {
+                            game == null -> {
+                                // Sem jogo selecionado ainda: leva para a escolha de um jogo,
+                                // já que os keymaps são configurados por jogo.
+                                navController.navigate(Routes.GAME_PICKER) { launchSingleTop = true }
+                            }
+                            !GameLauncher.permissionsReady(context) -> {
+                                // Faltam permissões (acessibilidade/overlay): a tela Iniciar
+                                // jogo já guia o usuário a concedê-las.
+                                navController.navigate(Routes.HOME) { launchSingleTop = true }
+                            }
+                            else -> {
+                                // Abre o editor direto em cima do jogo em execução.
+                                GameLauncher.startGame(
+                                    context = context,
+                                    packageName = game.packageName,
+                                    profileId = game.profileId,
+                                    enterEditMode = true
+                                )
+                            }
                         }
                     }
-                )
-            }
-
-            composable(
-                route = Routes.KEYMAPS,
-                arguments = listOf(navArgument("profileId") { type = NavType.LongType })
-            ) { entry ->
-                val profileId = entry.arguments?.getLong("profileId") ?: return@composable
-                KeymapEditorScreen(
-                    factory = factory,
-                    profileId = profileId,
-                    onBack = { navController.popBackStack() }
                 )
             }
 
