@@ -22,6 +22,8 @@ class AppPreferences(private val context: Context) {
         val SELECTED_GAME_LABEL = stringPreferencesKey("selected_game_label")
         val SELECTED_PROFILE_ID = longPreferencesKey("selected_profile_id")
         val MOUSE_SENSITIVITY = floatPreferencesKey("mouse_sensitivity")
+        val FREE_LOOK_SPEED_X = floatPreferencesKey("free_look_speed_x")
+        val FREE_LOOK_SPEED_Y = floatPreferencesKey("free_look_speed_y")
         val POLLING_RATE = stringPreferencesKey("polling_rate")
         val PERFORMANCE_PROFILE = stringPreferencesKey("performance_profile")
         val MAPPER_ENABLED = booleanPreferencesKey("mapper_enabled")
@@ -47,6 +49,20 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setMouseSensitivity(value: Float) {
         context.dataStore.edit { it[Keys.MOUSE_SENSITIVITY] = value.coerceIn(1f, 20f) }
+    }
+
+    /** Velocidade horizontal da câmera no controle livre ("Suspender mouse"), 0 a 1000; 500 = padrão. */
+    val freeLookSpeedX: Flow<Float> = context.dataStore.data.map { it[Keys.FREE_LOOK_SPEED_X] ?: DEFAULT_FREE_LOOK_SPEED }
+
+    /** Velocidade vertical da puxada (olhar para cima/baixo) no controle livre, 0 a 1000; 500 = padrão. */
+    val freeLookSpeedY: Flow<Float> = context.dataStore.data.map { it[Keys.FREE_LOOK_SPEED_Y] ?: DEFAULT_FREE_LOOK_SPEED }
+
+    suspend fun setFreeLookSpeedX(value: Float) {
+        context.dataStore.edit { it[Keys.FREE_LOOK_SPEED_X] = value.coerceIn(0f, 1000f) }
+    }
+
+    suspend fun setFreeLookSpeedY(value: Float) {
+        context.dataStore.edit { it[Keys.FREE_LOOK_SPEED_Y] = value.coerceIn(0f, 1000f) }
     }
 
     val pollingRate: Flow<PollingRate> = context.dataStore.data.map { prefs ->
@@ -82,5 +98,6 @@ class AppPreferences(private val context: Context) {
 
     companion object {
         const val DEFAULT_SENSITIVITY = 5f
+        const val DEFAULT_FREE_LOOK_SPEED = 500f
     }
 }

@@ -56,7 +56,7 @@ enum class PerformanceProfile(
     )
 }
 
-/** Opções de taxa de polling que o usuário PREFERE para o mouse (ver limitação em MouseSettingsScreen). */
+/** Opções de taxa de polling que o usuário PREFERE para o mouse (ver limitação na tela de Configurações do mouse, dentro do jogo). */
 enum class PollingRate(val label: String, val hz: Int?) {
     HZ_150("150 Hz", 150),
     HZ_250("250 Hz", 250),

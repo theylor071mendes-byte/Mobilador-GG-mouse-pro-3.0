@@ -18,10 +18,17 @@ object GameLauncher {
             DeviceInfoProvider.canDrawOverlays(context)
 
     /** Sobe o painel flutuante (OverlayService) com o perfil do jogo e abre o jogo. */
-    fun startGame(context: Context, packageName: String, profileId: Long, enterEditMode: Boolean = false) {
+    fun startGame(
+        context: Context,
+        packageName: String,
+        profileId: Long,
+        enterEditMode: Boolean = false,
+        openMouseSettings: Boolean = false
+    ) {
         val serviceIntent = Intent(context, OverlayService::class.java).apply {
             putExtra(OverlayService.EXTRA_PROFILE_ID, profileId)
             if (enterEditMode) putExtra(OverlayService.EXTRA_START_EDIT_MODE, true)
+            if (openMouseSettings) putExtra(OverlayService.EXTRA_OPEN_MOUSE_SETTINGS, true)
         }
         ContextCompat.startForegroundService(context, serviceIntent)
         context.packageManager.getLaunchIntentForPackage(packageName)?.let {

@@ -42,7 +42,6 @@ import com.mobiladorprox.app.ui.games.GamePickerScreen
 import com.mobiladorprox.app.ui.home.HomeScreen
 import com.mobiladorprox.app.ui.home.HomeViewModel
 import com.mobiladorprox.app.ui.menu.MenuScreen
-import com.mobiladorprox.app.ui.mouse.MouseSettingsScreen
 import com.mobiladorprox.app.ui.navigation.Routes
 import com.mobiladorprox.app.ui.optimization.OptimizationScreen
 import com.mobiladorprox.app.ui.performance.PerformanceScreen
@@ -205,32 +204,37 @@ private fun MobiladorApp(factory: ViewModelFactory) {
                 val context = LocalContext.current
                 val homeViewModel: HomeViewModel = viewModel(factory = factory)
                 val selectedGame by homeViewModel.selectedGame.collectAsStateWithLifecycle()
-                MenuScreen(
-                    onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } },
-                    onEditKeymaps = {
-                        val game = selectedGame
-                        when {
-                            game == null -> {
-                                // Sem jogo selecionado ainda: leva para a escolha de um jogo,
-                                // já que os keymaps são configurados por jogo.
-                                navController.navigate(Routes.GAME_PICKER) { launchSingleTop = true }
-                            }
-                            !GameLauncher.permissionsReady(context) -> {
-                                // Faltam permissões (acessibilidade/overlay): a tela Iniciar
-                                // jogo já guia o usuário a concedê-las.
-                                navController.navigate(Routes.HOME) { launchSingleTop = true }
-                            }
-                            else -> {
-                                // Abre o editor direto em cima do jogo em execução.
-                                GameLauncher.startGame(
-                                    context = context,
-                                    packageName = game.packageName,
-                                    profileId = game.profileId,
-                                    enterEditMode = true
-                                )
-                            }
+
+                // Tanto "Editar Keymaps" quanto "Configurações do mouse" agora abrem o
+                // editor dentro do próprio jogo em execução (ver EditOverlayView).
+                fun openInGame(openMouseSettings: Boolean) {
+                    val game = selectedGame
+                    when {
+                        game == null -> {
+                            // Sem jogo selecionado ainda: leva para a escolha de um jogo.
+                            navController.navigate(Routes.GAME_PICKER) { launchSingleTop = true }
+                        }
+                        !GameLauncher.permissionsReady(context) -> {
+                            // Faltam permissões (acessibilidade/overlay): a tela Iniciar
+                            // jogo já guia o usuário a concedê-las.
+                            navController.navigate(Routes.HOME) { launchSingleTop = true }
+                        }
+                        else -> {
+                            GameLauncher.startGame(
+                                context = context,
+                                packageName = game.packageName,
+                                profileId = game.profileId,
+                                enterEditMode = true,
+                                openMouseSettings = openMouseSettings
+                            )
                         }
                     }
+                }
+
+                MenuScreen(
+                    onNavigate = { route -> navController.navigate(route) { launchSingleTop = true } },
+                    onEditKeymaps = { openInGame(openMouseSettings = false) },
+                    onMouseSettings = { openInGame(openMouseSettings = true) }
                 )
             }
 
@@ -243,12 +247,6 @@ private fun MobiladorApp(factory: ViewModelFactory) {
             composable(Routes.PERFORMANCE) {
                 SubScreenScaffold(title = "Configurações de desempenho", onBack = { navController.popBackStack() }) {
                     PerformanceScreen(factory = factory)
-                }
-            }
-
-            composable(Routes.MOUSE_SETTINGS) {
-                SubScreenScaffold(title = "Configurações do mouse", onBack = { navController.popBackStack() }) {
-                    MouseSettingsScreen(factory = factory)
                 }
             }
         }

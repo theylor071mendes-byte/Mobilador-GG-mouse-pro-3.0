@@ -2,8 +2,11 @@ package com.mobiladorprox.app.service
 
 import android.app.AlertDialog
 import android.content.Context
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
+import android.text.InputType
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
@@ -22,6 +25,8 @@ import android.widget.TextView
 import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
 import com.mobiladorprox.app.data.model.GestureType
 import com.mobiladorprox.app.data.model.MouseButtons
+import com.mobiladorprox.app.data.model.PollingRate
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -43,19 +48,37 @@ class EditOverlayView(
         fun onToggleMouseCapture()
         fun isMouseCaptureActive(): Boolean
         fun isAccessibilityReady(): Boolean
+
+        fun getMouseSensitivity(): Float
+        fun setMouseSensitivity(value: Float)
+        fun getPollingRate(): PollingRate
+        fun setPollingRate(rate: PollingRate)
+
+        /** Velocidade horizontal da câmera no controle livre, 0 a 1000 (500 = padrão). */
+        fun getFreeLookSpeedX(): Float
+        fun setFreeLookSpeedX(value: Float)
+
+        /** Velocidade vertical da puxada (olhar p/ cima/baixo) no controle livre, 0 a 1000 (500 = padrão). */
+        fun getFreeLookSpeedY(): Float
+        fun setFreeLookSpeedY(value: Float)
     }
 
     private val bindings = mutableListOf<KeyBindingEntity>()
-    private val chipViews = mutableMapOf<Long, TextView>()
+    private val chipViews = mutableMapOf<Long, View>()
     private var dirty = false
     private var previewMode = false
     private var editorWidth = 0
     private var editorHeight = 0
     private var nextTempId = -1L
 
+    /** Botão selecionado (tocado uma vez) exibindo o X de exclusão rápida por cima. */
+    private var selectedBindingId: Long? = null
+    private var deleteBadge: TextView? = null
+
     private val chipLayer = FrameLayout(context)
     private val toolbarScroll: HorizontalScrollView
     private lateinit var mouseToggleChip: TextView
+    private lateinit var cameraSpeedGearChip: TextView
     private val reopenChip: TextView
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -63,6 +86,12 @@ class EditOverlayView(
 
         override fun onDoubleTap(e: MotionEvent): Boolean {
             if (!previewMode) addComponent(e.x, e.y)
+            return true
+        }
+
+        override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
+            // Tocar em área vazia do editor desseleciona o botão atual (some o X).
+            if (selectedBindingId != null) clearSelection()
             return true
         }
     })
@@ -144,7 +173,11 @@ class EditOverlayView(
             setOnClickListener { setPreviewMode(true) }
         })
         row.addView(space())
-        mouseToggleChip = OverlayStyle.pillButton(context, mouseToggleLabel(), OverlayStyle.NEON_BLUE, callbacks.isMouseCaptureActive()).apply {
+        row.addView(OverlayStyle.pillButton(context, "Mouse", OverlayStyle.NEON_PURPLE, false).apply {
+            setOnClickListener { openMouseSettingsDialog() }
+        })
+        row.addView(space())
+        mouseToggleChip = OverlayStyle.pillButton(context, "Suspender mouse", OverlayStyle.NEON_GREEN, false).apply {
             setOnClickListener {
                 if (!callbacks.isAccessibilityReady()) {
                     toast("Ative o Serviço de Acessibilidade para usar a câmera")
@@ -155,6 +188,13 @@ class EditOverlayView(
             }
         }
         row.addView(mouseToggleChip)
+        row.addView(space())
+        cameraSpeedGearChip = OverlayStyle.pillButton(context, "⚙", OverlayStyle.NEON_GREEN, true).apply {
+            visibility = View.GONE
+            setOnClickListener { openFreeLookSpeedDialog() }
+        }
+        row.addView(cameraSpeedGearChip)
+        refreshMouseToggle()
 
         return HorizontalScrollView(context).apply {
             isHorizontalScrollBarEnabled = false
@@ -163,18 +203,21 @@ class EditOverlayView(
         }
     }
 
-    private fun mouseToggleLabel() = if (callbacks.isMouseCaptureActive()) "Suspender mouse: ATIVO" else "Suspender mouse"
+    private fun mouseToggleLabel() = if (callbacks.isMouseCaptureActive()) "Suspender mouse: ATIVO (câmera livre)" else "Suspender mouse"
 
     fun refreshMouseToggle() {
         val active = callbacks.isMouseCaptureActive()
         mouseToggleChip.text = mouseToggleLabel()
         val bg = mouseToggleChip.background as? GradientDrawable
-        bg?.setColor(if (active) OverlayStyle.NEON_BLUE else OverlayStyle.CHIP_IDLE_BG)
-        mouseToggleChip.setTextColor(if (active) Color.WHITE else OverlayStyle.NEON_BLUE)
+        bg?.setColor(if (active) OverlayStyle.NEON_GREEN else OverlayStyle.CHIP_IDLE_BG)
+        bg?.setStroke(dp(1), OverlayStyle.NEON_GREEN)
+        mouseToggleChip.setTextColor(if (active) Color.BLACK else OverlayStyle.NEON_GREEN)
+        cameraSpeedGearChip.visibility = if (active) View.VISIBLE else View.GONE
     }
 
     private fun setPreviewMode(preview: Boolean) {
         previewMode = preview
+        clearSelection()
         toolbarScroll.visibility = if (preview) View.GONE else View.VISIBLE
         reopenChip.visibility = if (preview) View.VISIBLE else View.GONE
         renderChips()
@@ -209,6 +252,7 @@ class EditOverlayView(
     private fun renderChips() {
         chipLayer.removeAllViews()
         chipViews.clear()
+        if (selectedBindingId != null && bindings.none { it.id == selectedBindingId }) selectedBindingId = null
         if (editorWidth <= 0 || editorHeight <= 0) return
 
         bindings.forEach { binding ->
@@ -216,36 +260,89 @@ class EditOverlayView(
             chipViews[binding.id] = chip
             chipLayer.addView(chip, chipLayoutParams(binding))
         }
+        renderDeleteBadge()
     }
 
-    private fun chipSizePx(binding: KeyBindingEntity) = dp((40 * binding.sizePercent).roundToInt())
+    /** Analógico vem maior por padrão (cruz com 4 pontas), demais botões continuam circulares e menores. */
+    private fun componentSizePx(binding: KeyBindingEntity): Int {
+        val base = if (binding.gestureType == GestureType.ANALOG_STICK.name) 96 else 40
+        return dp((base * binding.sizePercent).roundToInt())
+    }
 
     private fun chipLayoutParams(binding: KeyBindingEntity): FrameLayout.LayoutParams {
-        val size = chipSizePx(binding)
+        val size = componentSizePx(binding)
         return FrameLayout.LayoutParams(size, size).apply {
             leftMargin = (binding.xPercent * editorWidth).roundToInt() - size / 2
             topMargin = (binding.yPercent * editorHeight).roundToInt() - size / 2
         }
     }
 
-    private fun buildChip(binding: KeyBindingEntity): TextView {
-        val accent = if (binding.gestureType == GestureType.ANALOG_STICK.name) OverlayStyle.NEON_BLUE else OverlayStyle.NEON_PURPLE
-        val chip = TextView(context).apply {
-            text = binding.label.take(2).uppercase()
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            textSize = if (previewMode) 9f else 11f
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(accent)
-                alpha = if (previewMode) 110 else 230
-                if (!previewMode) setStroke(dp(1), Color.WHITE)
+    private fun buildChip(binding: KeyBindingEntity): View {
+        val isAnalog = binding.gestureType == GestureType.ANALOG_STICK.name
+        val chip: View = if (isAnalog) {
+            AnalogStickView(context).apply { dim = previewMode }
+        } else {
+            TextView(context).apply {
+                text = binding.label.take(2).uppercase()
+                setTextColor(Color.WHITE)
+                gravity = Gravity.CENTER
+                textSize = if (previewMode) 9f else 11f
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(OverlayStyle.NEON_PURPLE)
+                    alpha = if (previewMode) 110 else 230
+                    if (!previewMode) setStroke(dp(1), Color.WHITE)
+                }
             }
         }
         if (!previewMode) {
             chip.setOnTouchListener(ChipDragListener(binding.id))
         }
         return chip
+    }
+
+    /**
+     * Visual do analógico virtual (WASD) no estilo de referência pedido: uma
+     * cruz com um ponto direcional em cima/baixo/esquerda/direita ao redor de
+     * um centro, sobre uma base translúcida — em vez do chip circular simples
+     * usado pelos demais botões. Desenhado em Canvas para ficar leve.
+     */
+    private inner class AnalogStickView(ctx: Context) : View(ctx) {
+        var dim: Boolean = false
+        private val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = dp(2).toFloat() }
+        private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+
+        private fun withAlpha(color: Int, alpha: Int) =
+            Color.argb(alpha, Color.red(color), Color.green(color), Color.blue(color))
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val w = width.toFloat()
+            val h = height.toFloat()
+            if (w <= 0f || h <= 0f) return
+            val cx = w / 2f
+            val cy = h / 2f
+            val armLen = minOf(w, h) * 0.40f
+            val dotR = minOf(w, h) * 0.13f
+            val mul = if (dim) 110 else 235
+
+            basePaint.color = withAlpha(Color.BLACK, (mul * 0.45f).roundToInt())
+            canvas.drawCircle(cx, cy, minOf(w, h) * 0.48f, basePaint)
+
+            linePaint.color = withAlpha(Color.WHITE, mul / 2)
+            canvas.drawLine(cx - armLen, cy, cx + armLen, cy, linePaint)
+            canvas.drawLine(cx, cy - armLen, cx, cy + armLen, linePaint)
+
+            dotPaint.color = withAlpha(OverlayStyle.NEON_BLUE, mul)
+            canvas.drawCircle(cx, cy - armLen, dotR, dotPaint)
+            canvas.drawCircle(cx, cy + armLen, dotR, dotPaint)
+            canvas.drawCircle(cx - armLen, cy, dotR, dotPaint)
+            canvas.drawCircle(cx + armLen, cy, dotR, dotPaint)
+
+            dotPaint.color = withAlpha(Color.WHITE, mul)
+            canvas.drawCircle(cx, cy, dotR * 0.55f, dotPaint)
+        }
     }
 
     private inner class ChipDragListener(private val bindingId: Long) : View.OnTouchListener {
@@ -268,7 +365,10 @@ class EditOverlayView(
                 MotionEvent.ACTION_MOVE -> {
                     val dx = event.rawX - downX
                     val dy = event.rawY - downY
-                    if (kotlin.math.abs(dx) > 6 || kotlin.math.abs(dy) > 6) moved = true
+                    if (kotlin.math.abs(dx) > 6 || kotlin.math.abs(dy) > 6) {
+                        if (!moved) clearSelection()
+                        moved = true
+                    }
                     val size = v.layoutParams.width
                     lp.leftMargin = (startLeft + dx).roundToInt().coerceIn(-size / 2, editorWidth - size / 2)
                     lp.topMargin = (startTop + dy).roundToInt().coerceIn(-size / 2, editorHeight - size / 2)
@@ -277,12 +377,64 @@ class EditOverlayView(
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!moved) {
-                        bindings.find { it.id == bindingId }?.let { openBindingDialog(it) }
+                        if (selectedBindingId == bindingId) {
+                            bindings.find { it.id == bindingId }?.let { openBindingDialog(it) }
+                        } else {
+                            selectChip(bindingId)
+                        }
                     }
                 }
             }
             return true
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // Seleção + X de exclusão rápida
+    // ---------------------------------------------------------------------
+
+    private fun selectChip(bindingId: Long) {
+        selectedBindingId = bindingId
+        renderDeleteBadge()
+    }
+
+    private fun clearSelection() {
+        if (selectedBindingId == null) return
+        selectedBindingId = null
+        deleteBadge?.let { chipLayer.removeView(it) }
+        deleteBadge = null
+    }
+
+    private fun renderDeleteBadge() {
+        deleteBadge?.let { chipLayer.removeView(it) }
+        deleteBadge = null
+        val id = selectedBindingId ?: return
+        val chip = chipViews[id] ?: return
+        val chipLp = chip.layoutParams as? FrameLayout.LayoutParams ?: return
+        val badgeSize = dp(22)
+        val badge = TextView(context).apply {
+            text = "✕"
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            textSize = 12f
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(OverlayStyle.DANGER_RED)
+                setStroke(dp(1), Color.WHITE)
+            }
+            setOnClickListener {
+                bindings.removeAll { it.id == id }
+                dirty = true
+                clearSelection()
+                renderChips()
+            }
+        }
+        val lp = FrameLayout.LayoutParams(badgeSize, badgeSize).apply {
+            leftMargin = chipLp.leftMargin + chipLp.width - badgeSize * 2 / 3
+            topMargin = chipLp.topMargin - badgeSize / 3
+        }
+        chipLayer.addView(badge, lp)
+        deleteBadge = badge
     }
 
     private fun updateBindingPosition(bindingId: Long, lp: FrameLayout.LayoutParams, size: Int) {
@@ -447,6 +599,7 @@ class EditOverlayView(
             deleteBtn.setOnClickListener {
                 bindings.removeAll { it.id == binding.id }
                 dirty = true
+                if (selectedBindingId == binding.id) clearSelection()
                 renderChips()
             }
         }
@@ -483,6 +636,130 @@ class EditOverlayView(
             }
             .create()
         showOverlayDialog(dialog)
+    }
+
+    // ---------------------------------------------------------------------
+    // Configurações do mouse (dentro do jogo, junto da edição de keymaps)
+    // ---------------------------------------------------------------------
+
+    /** Chamado pela barra "Mouse" ou, ao entrar pelo Menu, automaticamente pelo Service. */
+    fun openMouseSettingsDialog() {
+        val pad = dp(18)
+        val root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, pad) }
+
+        root.addView(sectionLabel("Sensibilidade do mouse"))
+        val sensLabel = TextView(context).apply { setTextColor(Color.WHITE); textSize = 16f }
+        var sensValue = callbacks.getMouseSensitivity()
+        fun refreshSensLabel() { sensLabel.text = formatDecimal(sensValue, 2) }
+        refreshSensLabel()
+        root.addView(sensLabel)
+        val sensSeek = SeekBar(context).apply {
+            max = 190 // 1.00 a 20.00 em passos de 0,1
+            progress = (((sensValue - 1f) / 0.1f).roundToInt()).coerceIn(0, 190)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
+                    sensValue = 1f + progress * 0.1f
+                    refreshSensLabel()
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar) {}
+            })
+        }
+        root.addView(sensSeek)
+
+        root.addView(sectionLabel("Taxa de resposta (polling rate)"))
+        root.addView(TextView(context).apply {
+            text = "O Android não permite alterar de fato a taxa de resposta de um mouse USB/Bluetooth; " +
+                "fica salva só como referência, sem efeito simulado."
+            setTextColor(Color.parseColor("#A0A0C0"))
+            textSize = 11f
+            setPadding(0, 0, 0, dp(6))
+        })
+        val pollingGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
+        val currentPolling = callbacks.getPollingRate()
+        PollingRate.values().forEach { rate ->
+            pollingGroup.addView(RadioButton(context).apply {
+                text = rate.label
+                id = View.generateViewId()
+                isChecked = rate == currentPolling
+                tag = rate
+            })
+        }
+        root.addView(pollingGroup)
+
+        val scroll = android.widget.ScrollView(context).apply { addView(root) }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Configurações do mouse")
+            .setView(scroll)
+            .setPositiveButton("Pronto") { _, _ ->
+                callbacks.setMouseSensitivity(sensValue)
+                val chosen = (0 until pollingGroup.childCount)
+                    .map { pollingGroup.getChildAt(it) as RadioButton }
+                    .firstOrNull { it.isChecked }
+                    ?.tag as? PollingRate
+                if (chosen != null) callbacks.setPollingRate(chosen)
+                toast("Configurações do mouse salvas")
+            }
+            .setNegativeButton("Cancelar", null)
+            .create()
+        showOverlayDialog(dialog)
+    }
+
+    // ---------------------------------------------------------------------
+    // Controle livre de câmera ("Suspender mouse"): velocidade horizontal/vertical
+    // ---------------------------------------------------------------------
+
+    private fun openFreeLookSpeedDialog() {
+        val pad = dp(18)
+        val root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, pad) }
+
+        root.addView(sectionLabel("Controle livre de câmera"))
+        root.addView(TextView(context).apply {
+            text = "Com o mouse suspenso (botão verde), mova para qualquer direção para olhar livremente. " +
+                "Ajuste a velocidade abaixo (0 a 1000, aceita vírgula)."
+            setTextColor(Color.parseColor("#A0A0C0"))
+            textSize = 12f
+            setPadding(0, 0, 0, dp(10))
+        })
+
+        root.addView(sectionLabel("Velocidade horizontal da câmera"))
+        val hField = EditText(context).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(formatDecimal(callbacks.getFreeLookSpeedX(), 1))
+            hint = "0 a 1000"
+        }
+        root.addView(hField)
+
+        root.addView(sectionLabel("Velocidade vertical da puxada"))
+        val vField = EditText(context).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(formatDecimal(callbacks.getFreeLookSpeedY(), 1))
+            hint = "0 a 1000"
+        }
+        root.addView(vField)
+
+        val scroll = android.widget.ScrollView(context).apply { addView(root) }
+        val dialog = AlertDialog.Builder(context)
+            .setTitle("Suspender mouse — câmera livre")
+            .setView(scroll)
+            .setPositiveButton("Aplicar") { _, _ ->
+                parseDecimal(hField.text.toString())?.let { callbacks.setFreeLookSpeedX(it.coerceIn(0f, 1000f)) }
+                parseDecimal(vField.text.toString())?.let { callbacks.setFreeLookSpeedY(it.coerceIn(0f, 1000f)) }
+                toast("Velocidade da câmera livre atualizada")
+            }
+            .setNegativeButton("Fechar", null)
+            .create()
+        showOverlayDialog(dialog)
+    }
+
+    /** Aceita "," ou "." como separador decimal ao digitar. */
+    private fun parseDecimal(text: String): Float? = text.trim().replace(',', '.').toFloatOrNull()
+
+    /** Formata com vírgula (padrão brasileiro), sem casas decimais desnecessárias. */
+    private fun formatDecimal(value: Float, decimals: Int): String {
+        val formatted = String.format(Locale.US, "%.${decimals}f", value)
+        val trimmed = if (formatted.contains('.')) formatted.trimEnd('0').trimEnd('.') else formatted
+        return (trimmed.ifEmpty { "0" }).replace('.', ',')
     }
 
     private fun sectionLabel(text: String): TextView = TextView(context).apply {

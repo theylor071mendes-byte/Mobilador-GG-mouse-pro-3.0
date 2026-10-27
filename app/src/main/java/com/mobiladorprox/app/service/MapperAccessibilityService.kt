@@ -38,7 +38,20 @@ class MapperAccessibilityService : AccessibilityService() {
     private var analogCurrentX = 0f
     private var analogCurrentY = 0f
 
-    private data class HoldState(var stroke: GestureDescription.StrokeDescription, var active: Boolean)
+    private data class HoldState(
+        var stroke: GestureDescription.StrokeDescription,
+        var active: Boolean,
+        var lastX: Float = 0f,
+        var lastY: Float = 0f
+    )
+
+    /**
+     * Avisa o [OverlayService] quando o app em primeiro plano muda (pacote da
+     * janela ativa), para que o mapeador possa se encerrar sozinho ao sair do
+     * jogo selecionado. Não lê texto nem elementos da tela — apenas o nome do
+     * pacote já presente no próprio evento de acessibilidade.
+     */
+    var onForegroundAppChanged: ((String) -> Unit)? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -54,6 +67,7 @@ class MapperAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         instance = null
+        onForegroundAppChanged = null
         pressedWasd.clear()
         analogHoldState = null
         MapperState.clear()
@@ -61,7 +75,12 @@ class MapperAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // Este app não lê o conteúdo da tela; só reage a eventos de tecla.
+        // Este app não lê o conteúdo da tela; usa só o nome do pacote da
+        // janela em primeiro plano (já incluído no próprio evento) para
+        // saber quando o usuário saiu do jogo selecionado.
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            event.packageName?.toString()?.let { pkg -> onForegroundAppChanged?.invoke(pkg) }
+        }
     }
 
     override fun onInterrupt() {
@@ -195,8 +214,17 @@ class MapperAccessibilityService : AccessibilityService() {
     }
 
     private fun releaseAnalogStick() {
-        analogHoldState?.active = false
+        val state = analogHoldState ?: return
+        state.active = false
         analogHoldState = null
+        // Correção de bug: sem este passo, o último segmento ficava sempre em
+        // "willContinue=true" e o toque simulado nunca soltava de fato na
+        // tela — o personagem continuava andando sozinho mesmo depois de
+        // soltar todas as teclas WASD. Aqui finalizamos o gesto explicitamente
+        // (willContinue=false) para soltar o toque no ponto atual.
+        val path = Path().apply { moveTo(analogCurrentX, analogCurrentY) }
+        val finalStroke = state.stroke.continueStroke(path, 0, RELEASE_STROKE_MS, false)
+        dispatchGesture(GestureDescription.Builder().addStroke(finalStroke).build(), null, null)
     }
 
     /** Converte porcentagem de tela (0f..1f) em pixels reais do aparelho. */
@@ -219,7 +247,7 @@ class MapperAccessibilityService : AccessibilityService() {
         val (x, y) = percentToPixels(xPercent, yPercent)
         val path = Path().apply { moveTo(x, y) }
         val initialStroke = GestureDescription.StrokeDescription(path, 0, HOLD_SEGMENT_MS, true)
-        val state = HoldState(initialStroke, true)
+        val state = HoldState(initialStroke, true, x, y)
         activeHolds[actionId] = state
         dispatchGesture(GestureDescription.Builder().addStroke(initialStroke).build(), null, null)
         scheduleHoldContinuation(actionId, x, y)
@@ -238,11 +266,13 @@ class MapperAccessibilityService : AccessibilityService() {
     }
 
     private fun stopHold(actionId: String) {
-        val state = activeHolds[actionId] ?: return
+        val state = activeHolds.remove(actionId) ?: return
         state.active = false
-        activeHolds.remove(actionId)
-        // O segmento atual (willContinue=true) termina sozinho em até
-        // HOLD_SEGMENT_MS, soltando o toque naturalmente na tela.
+        // Mesma correção do analógico: finaliza o gesto com willContinue=false
+        // para garantir que o toque realmente solte na tela.
+        val path = Path().apply { moveTo(state.lastX, state.lastY) }
+        val finalStroke = state.stroke.continueStroke(path, 0, RELEASE_STROKE_MS, false)
+        dispatchGesture(GestureDescription.Builder().addStroke(finalStroke).build(), null, null)
     }
 
     /** Usado pelo OverlayService durante a captura do mouse para mover a câmera. */
@@ -265,6 +295,7 @@ class MapperAccessibilityService : AccessibilityService() {
         activeHolds.clear()
         pressedWasd.clear()
         analogHoldState = null
+        onForegroundAppChanged = null
         instance = null
         MapperState.clear()
     }
@@ -274,6 +305,7 @@ class MapperAccessibilityService : AccessibilityService() {
         private const val TAP_DURATION_MS = 45L
         private const val HOLD_SEGMENT_MS = 300L
         private const val HOLD_RENEW_MARGIN_MS = 60L
+        private const val RELEASE_STROKE_MS = 16L
         private const val LOOK_STROKE_MS = 16L
         private const val ANALOG_RADIUS_PX = 140f
         private const val ANALOG_MOVE_MS = 60L

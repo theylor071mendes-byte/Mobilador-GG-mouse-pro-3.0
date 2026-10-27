@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import com.mobiladorprox.app.data.repository.ProfileRepository
 import com.mobiladorprox.app.settings.AppPreferences
 import com.mobiladorprox.app.ui.home.HomeViewModel
-import com.mobiladorprox.app.ui.mouse.MouseSettingsViewModel
 import com.mobiladorprox.app.ui.optimization.OptimizationViewModel
 import com.mobiladorprox.app.ui.performance.PerformanceViewModel
 
@@ -26,9 +25,6 @@ class ViewModelFactory(
 
             modelClass.isAssignableFrom(PerformanceViewModel::class.java) ->
                 PerformanceViewModel(preferences) as T
-
-            modelClass.isAssignableFrom(MouseSettingsViewModel::class.java) ->
-                MouseSettingsViewModel(preferences) as T
 
             modelClass.isAssignableFrom(OptimizationViewModel::class.java) ->
                 OptimizationViewModel() as T

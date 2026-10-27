@@ -3,6 +3,7 @@ package com.mobiladorprox.app.service
 import com.mobiladorprox.app.data.db.entity.GameProfileEntity
 import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
 import com.mobiladorprox.app.data.model.GestureType
+import com.mobiladorprox.app.data.model.PollingRate
 
 /**
  * Estado em memória do perfil (keymap) atualmente carregado e das
@@ -25,6 +26,10 @@ object MapperState {
     @Volatile
     var activeProfileName: String = ""
 
+    /** Pacote do jogo selecionado (ex.: "com.dts.freefireth"), usado para encerrar o mapeador sozinho ao sair dele. */
+    @Volatile
+    var activeGamePackage: String? = null
+
     @Volatile
     var bindingsByKeyCode: Map<Int, KeyBindingEntity> = emptyMap()
 
@@ -39,13 +44,26 @@ object MapperState {
     @Volatile
     var mouseSensitivity: Float = 5f
 
+    /** Preferência de taxa de resposta do mouse (apenas referência; ver limitação em AppPreferences). */
+    @Volatile
+    var pollingRate: PollingRate = PollingRate.UNLIMITED
+
     /** 1f = resposta crua; valores menores suavizam o movimento da câmera. Vem do Perfil de desempenho. */
     @Volatile
     var lookResponsiveness: Float = 0.65f
 
+    /** Velocidade horizontal da câmera no controle livre ("Suspender mouse"), 0 a 1000; 500 = padrão (1x). */
+    @Volatile
+    var freeLookSpeedX: Float = 500f
+
+    /** Velocidade vertical da puxada (olhar para cima/baixo) no controle livre, 0 a 1000; 500 = padrão (1x). */
+    @Volatile
+    var freeLookSpeedY: Float = 500f
+
     fun loadProfile(profile: GameProfileEntity, bindings: List<KeyBindingEntity>) {
         activeProfileId = profile.id
         activeProfileName = profile.profileName
+        activeGamePackage = profile.packageName
         bindingsByKeyCode = bindings
             .filter { it.gestureType != GestureType.LOOK_TOGGLE.name && it.gestureType != GestureType.ANALOG_STICK.name }
             .associateBy { it.keyCode }
@@ -58,6 +76,7 @@ object MapperState {
         isCameraCaptureActive = false
         activeProfileId = null
         activeProfileName = ""
+        activeGamePackage = null
         bindingsByKeyCode = emptyMap()
         cameraBinding = null
         analogStickBinding = null

@@ -33,18 +33,19 @@ import com.mobiladorprox.app.ui.theme.NeonPurple
 import com.mobiladorprox.app.ui.theme.TextSecondary
 
 private const val ROUTE_KEYMAPS = "__keymaps__"
+private const val ROUTE_MOUSE_SETTINGS = "__mouse_settings__"
 
 private data class MenuItem(val title: String, val description: String, val icon: ImageVector, val route: String)
 
 private val menuItems = listOf(
-    MenuItem("Editar Keymaps", "Posicione botões, vincule teclas e cliques do mouse por jogo", Icons.Filled.Edit, ROUTE_KEYMAPS),
+    MenuItem("Editar Keymaps", "Posicione botões, vincule teclas e cliques do mouse, dentro do jogo", Icons.Filled.Edit, ROUTE_KEYMAPS),
     MenuItem("Otimização", "Informações reais do aparelho e atalhos de ajuste", Icons.Filled.Tune, Routes.OPTIMIZATION),
     MenuItem("Configurações de desempenho", "Perfis ALTO / MÉDIO / BAIXO / MUITO BAIXO", Icons.Filled.Speed, Routes.PERFORMANCE),
-    MenuItem("Configurações do mouse", "Sensibilidade e polling rate", Icons.Filled.Mouse, Routes.MOUSE_SETTINGS)
+    MenuItem("Configurações do mouse", "Sensibilidade e polling rate, dentro do jogo", Icons.Filled.Mouse, ROUTE_MOUSE_SETTINGS)
 )
 
 @Composable
-fun MenuScreen(onNavigate: (route: String) -> Unit, onEditKeymaps: () -> Unit) {
+fun MenuScreen(onNavigate: (route: String) -> Unit, onEditKeymaps: () -> Unit, onMouseSettings: () -> Unit) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
@@ -55,9 +56,13 @@ fun MenuScreen(onNavigate: (route: String) -> Unit, onEditKeymaps: () -> Unit) {
         items(menuItems) { item ->
             NeonCard(
                 modifier = Modifier.clickable {
-                    if (item.route == ROUTE_KEYMAPS) onEditKeymaps() else onNavigate(item.route)
+                    when (item.route) {
+                        ROUTE_KEYMAPS -> onEditKeymaps()
+                        ROUTE_MOUSE_SETTINGS -> onMouseSettings()
+                        else -> onNavigate(item.route)
+                    }
                 },
-                accentColor = if (item.route == ROUTE_KEYMAPS) NeonBlue else NeonPurple
+                accentColor = if (item.route == ROUTE_KEYMAPS || item.route == ROUTE_MOUSE_SETTINGS) NeonBlue else NeonPurple
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

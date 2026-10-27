@@ -24,11 +24,14 @@ import com.mobiladorprox.app.MainActivity
 import com.mobiladorprox.app.MobiladorApplication
 import com.mobiladorprox.app.R
 import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
+import com.mobiladorprox.app.data.model.PollingRate
 import com.mobiladorprox.app.ui.navigation.Routes
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.abs
@@ -49,11 +52,17 @@ class OverlayService : Service() {
     private var handleView: View? = null
     private var handleParams: WindowManager.LayoutParams? = null
     private var panelView: View? = null
+    private var panelScrimView: View? = null
     private var captureView: PointerCaptureView? = null
 
     private var editOverlayView: EditOverlayView? = null
     private var editOverlayParams: WindowManager.LayoutParams? = null
     private var wasMapperActiveBeforeEdit = false
+
+    // Encerramento automático ao sair do jogo selecionado: dá uma pequena
+    // margem antes de encerrar de fato, para não derrubar o mapeador por
+    // trocas rápidas de janela (ex.: abrir a barra de notificações).
+    private var pendingStopJob: Job? = null
 
     // Suavização exponencial aplicada ao movimento bruto do mouse antes de
     // virar gesto de câmera (ver PerformanceProfile.lookResponsiveness).
@@ -101,9 +110,10 @@ class OverlayService : Service() {
 
         val profileId = intent?.getLongExtra(EXTRA_PROFILE_ID, -1L)?.takeIf { it > 0 }
         val startInEditMode = intent?.getBooleanExtra(EXTRA_START_EDIT_MODE, false) ?: false
+        val openMouseSettings = intent?.getBooleanExtra(EXTRA_OPEN_MOUSE_SETTINGS, false) ?: false
         if (profileId != null) {
             loadProfileIntoState(profileId, activate = !startInEditMode, onLoaded = {
-                if (startInEditMode) enterEditMode()
+                if (startInEditMode) enterEditMode(openMouseSettingsOnReady = openMouseSettings)
             })
         }
 
@@ -116,6 +126,7 @@ class OverlayService : Service() {
             Choreographer.getInstance().removeFrameCallback(frameCallback)
             frameFlushScheduled = false
         }
+        MapperAccessibilityService.instance?.onForegroundAppChanged = null
         removeEditOverlay()
         removeCaptureWindow()
         removePanel()
@@ -244,6 +255,21 @@ class OverlayService : Service() {
 
     private fun showPanel() {
         if (panelView != null) return
+
+        // Camada transparente em tela cheia só para detectar toque fora do
+        // painel e fechá-lo; fica atrás do painel em si, que é adicionado
+        // na sequência e recebe o toque normalmente dentro dos seus limites.
+        val scrim = View(this).apply { setOnClickListener { removePanel() } }
+        val scrimParams = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        )
+        runCatching { windowManager.addView(scrim, scrimParams) }
+        panelScrimView = scrim
+
         val container = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dpToPx(14), dpToPx(14), dpToPx(14), dpToPx(14))
@@ -254,28 +280,14 @@ class OverlayService : Service() {
             }
         }
 
-        // Atalho principal ao tocar na bola: editar os keymaps dentro do próprio jogo.
+        // Painel enxuto: as duas únicas ações abrem o jogo e caem direto no
+        // editor dentro dele (keymaps ou, no segundo caso, já com as
+        // configurações do mouse abertas). Tocar fora do painel o fecha.
         container.addView(simpleButton("✎ Editar Keymaps (no jogo)") { enterEditMode() })
         container.addView(spacerView())
-        container.addView(simpleButton("Configurações do mouse") { openScreenInApp(Routes.MOUSE_SETTINGS) })
-        container.addView(spacerView())
-
-        container.addView(panelButton(
-            labelOn = "Mapeador: ATIVO",
-            labelOff = "Mapeador: INATIVO",
-            isOn = { MapperState.isMapperActive },
-            onToggle = { MapperState.isMapperActive = !MapperState.isMapperActive }
-        ))
-        container.addView(spacerView())
-        container.addView(panelButton(
-            labelOn = "Suspender mouse: ATIVO",
-            labelOff = "Suspender mouse",
-            isOn = { MapperState.isCameraCaptureActive },
-            onToggle = { toggleCameraCapture() }
-        ))
-        container.addView(spacerView())
-        container.addView(simpleButton("Fechar painel") { removePanel() })
-        container.addView(simpleButton("Encerrar mapeador") { stopSelf() })
+        container.addView(simpleButton("Configurações do mouse") {
+            enterEditMode(openMouseSettingsOnReady = true)
+        })
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -296,28 +308,12 @@ class OverlayService : Service() {
     private fun removePanel() {
         panelView?.let { safeRemoveView(it) }
         panelView = null
+        panelScrimView?.let { safeRemoveView(it) }
+        panelScrimView = null
     }
 
     private fun spacerView(): View = View(this).apply {
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dpToPx(6))
-    }
-
-    private fun panelButton(labelOn: String, labelOff: String, isOn: () -> Boolean, onToggle: () -> Unit): TextView {
-        val button = OverlayStyle.pillButton(this, if (isOn()) labelOn else labelOff, COLOR_NEON_BLUE, isOn())
-        fun refresh() {
-            button.text = if (isOn()) labelOn else labelOff
-            val bg = button.background as? GradientDrawable
-            bg?.setColor(if (isOn()) COLOR_NEON_BLUE else OverlayStyle.CHIP_IDLE_BG)
-            button.setTextColor(if (isOn()) Color.WHITE else COLOR_NEON_BLUE)
-        }
-        val lp = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-        button.layoutParams = lp
-        button.gravity = Gravity.CENTER
-        button.setOnClickListener {
-            onToggle()
-            refresh()
-        }
-        return button
     }
 
     private fun simpleButton(label: String, action: () -> Unit): TextView {
@@ -332,8 +328,11 @@ class OverlayService : Service() {
     // Editor de keymaps dentro do jogo (overlay nativo sobre a tela real)
     // ---------------------------------------------------------------------
 
-    private fun enterEditMode() {
-        if (editOverlayView != null) return
+    private fun enterEditMode(openMouseSettingsOnReady: Boolean = false) {
+        if (editOverlayView != null) {
+            if (openMouseSettingsOnReady) editOverlayView?.openMouseSettingsDialog()
+            return
+        }
         val profileId = MapperState.activeProfileId
         if (profileId == null) {
             openScreenInApp(Routes.GAME_PICKER)
@@ -364,6 +363,37 @@ class OverlayService : Service() {
             override fun isMouseCaptureActive(): Boolean = MapperState.isCameraCaptureActive
 
             override fun isAccessibilityReady(): Boolean = MapperAccessibilityService.isRunning
+
+            override fun getMouseSensitivity(): Float = MapperState.mouseSensitivity
+
+            override fun setMouseSensitivity(value: Float) {
+                val clamped = value.coerceIn(1f, 20f)
+                MapperState.mouseSensitivity = clamped
+                serviceScope.launch { preferences.setMouseSensitivity(clamped) }
+            }
+
+            override fun getPollingRate(): PollingRate = MapperState.pollingRate
+
+            override fun setPollingRate(rate: PollingRate) {
+                MapperState.pollingRate = rate
+                serviceScope.launch { preferences.setPollingRate(rate) }
+            }
+
+            override fun getFreeLookSpeedX(): Float = MapperState.freeLookSpeedX
+
+            override fun setFreeLookSpeedX(value: Float) {
+                val clamped = value.coerceIn(0f, 1000f)
+                MapperState.freeLookSpeedX = clamped
+                serviceScope.launch { preferences.setFreeLookSpeedX(clamped) }
+            }
+
+            override fun getFreeLookSpeedY(): Float = MapperState.freeLookSpeedY
+
+            override fun setFreeLookSpeedY(value: Float) {
+                val clamped = value.coerceIn(0f, 1000f)
+                MapperState.freeLookSpeedY = clamped
+                serviceScope.launch { preferences.setFreeLookSpeedY(clamped) }
+            }
         })
 
         val params = WindowManager.LayoutParams(
@@ -386,6 +416,7 @@ class OverlayService : Service() {
         serviceScope.launch {
             val bindings = repository.getBindingsOnce(profileId)
             editOverlayView?.setBindings(bindings)
+            if (openMouseSettingsOnReady) editOverlayView?.openMouseSettingsDialog()
         }
     }
 
@@ -419,6 +450,9 @@ class OverlayService : Service() {
             val bindings = repository.getBindingsOnce(profileId)
             MapperState.loadProfile(profile, bindings)
             if (activate) MapperState.isMapperActive = true
+            // Permite que o mapeador se encerre sozinho assim que o usuário
+            // sair do jogo selecionado (ver handleForegroundAppChanged).
+            MapperAccessibilityService.instance?.onForegroundAppChanged = ::handleForegroundAppChanged
             onLoaded()
         }
     }
@@ -426,7 +460,38 @@ class OverlayService : Service() {
     private fun loadGlobalSettings() {
         serviceScope.launch {
             MapperState.mouseSensitivity = preferences.mouseSensitivity.first()
+            MapperState.pollingRate = preferences.pollingRate.first()
+            MapperState.freeLookSpeedX = preferences.freeLookSpeedX.first()
+            MapperState.freeLookSpeedY = preferences.freeLookSpeedY.first()
             MapperState.lookResponsiveness = preferences.performanceProfile.first().lookResponsiveness
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // Encerramento automático ao sair do jogo selecionado
+    // ---------------------------------------------------------------------
+
+    /**
+     * Chamado pelo [MapperAccessibilityService] sempre que o app em primeiro
+     * plano muda. Se o novo pacote não for nem o jogo selecionado nem o
+     * próprio app (telas internas, diálogos), agenda o encerramento do
+     * mapeador após uma pequena margem — cancelada se o jogo voltar ao
+     * primeiro plano antes disso (ex.: o usuário só abriu a barra de
+     * notificações rapidamente).
+     */
+    private fun handleForegroundAppChanged(foregroundPackage: String) {
+        val activeGame = MapperState.activeGamePackage ?: return
+        if (foregroundPackage == activeGame) {
+            pendingStopJob?.cancel()
+            pendingStopJob = null
+            return
+        }
+        if (foregroundPackage == packageName) return
+        pendingStopJob?.cancel()
+        pendingStopJob = serviceScope.launch {
+            delay(AUTO_STOP_GRACE_MS)
+            Log.d(TAG, "Saiu do jogo selecionado ($activeGame); encerrando o mapeador automaticamente.")
+            stopSelf()
         }
     }
 
@@ -518,8 +583,13 @@ class OverlayService : Service() {
         val centerX = binding?.xPercent ?: 0.6f
         val centerY = binding?.yPercent ?: 0.45f
         val sensitivity = MapperState.mouseSensitivity / 5f // 5.0 é o valor neutro (~1x)
-        val scaledDx = smoothedDx * sensitivity
-        val scaledDy = smoothedDy * sensitivity
+        // Velocidade horizontal/vertical ajustável (0 a 1000; 500 = padrão/1x)
+        // no controle livre de câmera ("Suspender mouse"), independente da
+        // sensibilidade geral acima.
+        val speedXMultiplier = MapperState.freeLookSpeedX / 500f
+        val speedYMultiplier = MapperState.freeLookSpeedY / 500f
+        val scaledDx = smoothedDx * sensitivity * speedXMultiplier
+        val scaledDy = smoothedDy * sensitivity * speedYMultiplier
         MapperAccessibilityService.instance?.dispatchLookSwipe(centerX, centerY, scaledDx, scaledDy)
     }
 
@@ -543,6 +613,8 @@ class OverlayService : Service() {
         const val ACTION_STOP = "com.mobiladorprox.app.action.STOP_OVERLAY"
         const val EXTRA_PROFILE_ID = "extra_profile_id"
         const val EXTRA_START_EDIT_MODE = "extra_start_edit_mode"
+        const val EXTRA_OPEN_MOUSE_SETTINGS = "extra_open_mouse_settings"
+        private const val AUTO_STOP_GRACE_MS = 1500L
 
         private val COLOR_NEON_PURPLE = Color.parseColor("#9D4DFF")
         private val COLOR_NEON_BLUE = Color.parseColor("#00E5FF")

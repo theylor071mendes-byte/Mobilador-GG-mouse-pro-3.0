@@ -15,6 +15,8 @@ import kotlin.math.roundToInt
 object OverlayStyle {
     val NEON_PURPLE: Int = Color.parseColor("#9D4DFF")
     val NEON_BLUE: Int = Color.parseColor("#00E5FF")
+    val NEON_GREEN: Int = Color.parseColor("#39FF6A")
+    val DANGER_RED: Int = Color.parseColor("#FF4F64")
     val PANEL_BG: Int = Color.parseColor("#D914141F")
     val CHIP_IDLE_BG: Int = Color.parseColor("#2A2A3A")
 
