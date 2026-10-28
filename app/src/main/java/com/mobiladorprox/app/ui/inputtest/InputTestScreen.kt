@@ -33,9 +33,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.nativeKeyEvent
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.isPrimaryPressed
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.isTertiaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -78,7 +80,7 @@ fun InputTestScreen() {
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent { event ->
-                val code = event.nativeKeyEvent.keyCode
+                val code = event.key.nativeKeyCode
                 val label = keyLabelFor(code)
                 when (event.type) {
                     KeyEventType.KeyDown -> {
