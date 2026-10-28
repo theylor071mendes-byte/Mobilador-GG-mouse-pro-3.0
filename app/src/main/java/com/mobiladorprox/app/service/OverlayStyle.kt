@@ -13,12 +13,12 @@ import kotlin.math.roundToInt
  * botões leves em formato de pílula.
  */
 object OverlayStyle {
-    val NEON_PURPLE: Int = Color.parseColor("#9D4DFF")
-    val NEON_BLUE: Int = Color.parseColor("#00E5FF")
-    val NEON_GREEN: Int = Color.parseColor("#39FF6A")
+    val NEON_PURPLE: Int = Color.parseColor("#FF1E42") // vermelho neon principal
+    val NEON_BLUE: Int = Color.parseColor("#FF5C72") // vermelho neon claro (realces)
+    val NEON_GREEN: Int = Color.parseColor("#39FF6A") // indicador de "ativo" (convenção universal, fora da paleta de marca)
     val DANGER_RED: Int = Color.parseColor("#FF4F64")
-    val PANEL_BG: Int = Color.parseColor("#D914141F")
-    val CHIP_IDLE_BG: Int = Color.parseColor("#2A2A3A")
+    val PANEL_BG: Int = Color.parseColor("#D9140A0C")
+    val CHIP_IDLE_BG: Int = Color.parseColor("#2A1416")
 
     fun dp(context: Context, value: Int): Int =
         (value * context.resources.displayMetrics.density).roundToInt()

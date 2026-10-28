@@ -77,10 +77,9 @@ class MapperAccessibilityService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
+        releaseAllInputs()
         instance = null
         onForegroundAppChanged = null
-        pressedWasd.clear()
-        analogHoldState = null
         MapperState.clear()
         return super.onUnbind(intent)
     }
@@ -96,6 +95,24 @@ class MapperAccessibilityService : AccessibilityService() {
 
     override fun onInterrupt() {
         Log.d(TAG, "Serviço interrompido pelo sistema")
+        // O sistema pode interromper o serviço a qualquer momento (troca de
+        // app, permissão revogada, etc.): solta qualquer toque simulado em
+        // andamento para não deixar o personagem "andando sozinho".
+        releaseAllInputs()
+    }
+
+    /**
+     * Solta de verdade qualquer entrada simulada em andamento (WASD/analógico
+     * e qualquer botão "segurar"), finalizando cada gesto com
+     * willContinue=false. Chamado ao soltar uma tecla, ao fechar o editor de
+     * keymaps, ao perder o foco do jogo selecionado e ao interromper o
+     * próprio Serviço de Acessibilidade — para nunca deixar um toque "preso"
+     * na tela.
+     */
+    fun releaseAllInputs() {
+        pressedWasd.clear()
+        releaseAnalogStick()
+        activeHolds.keys.toList().forEach { actionId -> stopHold(actionId) }
     }
 
     override fun onKeyEvent(event: KeyEvent): Boolean {
@@ -302,10 +319,8 @@ class MapperAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        releaseAllInputs()
         handler.removeCallbacksAndMessages(null)
-        activeHolds.clear()
-        pressedWasd.clear()
-        analogHoldState = null
         onForegroundAppChanged = null
         instance = null
         MapperState.clear()

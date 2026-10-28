@@ -41,6 +41,7 @@ import com.mobiladorprox.app.ui.ViewModelFactory
 import com.mobiladorprox.app.ui.games.GamePickerScreen
 import com.mobiladorprox.app.ui.home.HomeScreen
 import com.mobiladorprox.app.ui.home.HomeViewModel
+import com.mobiladorprox.app.ui.inputtest.InputTestScreen
 import com.mobiladorprox.app.ui.menu.MenuScreen
 import com.mobiladorprox.app.ui.navigation.Routes
 import com.mobiladorprox.app.ui.optimization.OptimizationScreen
@@ -236,6 +237,12 @@ private fun MobiladorApp(factory: ViewModelFactory) {
                     onEditKeymaps = { openInGame(openMouseSettings = false) },
                     onMouseSettings = { openInGame(openMouseSettings = true) }
                 )
+            }
+
+            composable(Routes.INPUT_TEST) {
+                SubScreenScaffold(title = "Teste de Teclado e Mouse", onBack = { navController.popBackStack() }) {
+                    InputTestScreen()
+                }
             }
 
             composable(Routes.OPTIMIZATION) {

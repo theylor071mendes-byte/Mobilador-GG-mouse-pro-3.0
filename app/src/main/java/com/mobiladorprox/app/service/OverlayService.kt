@@ -342,6 +342,11 @@ class OverlayService : Service() {
 
         wasMapperActiveBeforeEdit = MapperState.isMapperActive
         MapperState.isMapperActive = false
+        // Solta de verdade qualquer toque simulado em andamento (WASD/analógico
+        // ou um botão "segurar") no instante em que o editor abre — em vez de
+        // só bloquear novas teclas, para nunca deixar o personagem andando
+        // sozinho enquanto o editor estiver aberto.
+        MapperAccessibilityService.instance?.releaseAllInputs()
 
         val view = EditOverlayView(this, object : EditOverlayView.Callbacks {
             override fun onSave(bindings: List<KeyBindingEntity>) {
@@ -502,6 +507,9 @@ class OverlayService : Service() {
                 ?.let { it != activeGame } ?: false
             if (reallyStillAway) {
                 Log.d(TAG, "Saiu do jogo selecionado ($activeGame); encerrando o mapeador automaticamente.")
+                // Solta qualquer toque simulado em andamento imediatamente,
+                // sem esperar a destruição completa do serviço.
+                MapperAccessibilityService.instance?.releaseAllInputs()
                 stopSelf()
             }
         }
@@ -628,8 +636,8 @@ class OverlayService : Service() {
         const val EXTRA_OPEN_MOUSE_SETTINGS = "extra_open_mouse_settings"
         private const val AUTO_STOP_GRACE_MS = 2200L
 
-        private val COLOR_NEON_PURPLE = Color.parseColor("#9D4DFF")
-        private val COLOR_NEON_BLUE = Color.parseColor("#00E5FF")
+        private val COLOR_NEON_PURPLE = Color.parseColor("#FF1E42")
+        private val COLOR_NEON_BLUE = Color.parseColor("#FF5C72")
 
         @Volatile
         var isRunning: Boolean = false

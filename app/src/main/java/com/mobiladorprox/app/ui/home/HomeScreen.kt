@@ -49,6 +49,7 @@ import com.mobiladorprox.app.ui.ViewModelFactory
 import com.mobiladorprox.app.ui.components.GlowButton
 import com.mobiladorprox.app.ui.components.PillStatus
 import com.mobiladorprox.app.ui.components.StatusPill
+import com.mobiladorprox.app.ui.theme.BackgroundBlack
 import com.mobiladorprox.app.ui.theme.NeonBlue
 import com.mobiladorprox.app.ui.theme.NeonPurple
 import com.mobiladorprox.app.ui.theme.SurfaceElevated
@@ -176,7 +177,7 @@ private fun GameCoverCard(
             modifier = Modifier
                 .size(width = 220.dp, height = 300.dp)
                 .clip(RoundedCornerShape(24.dp))
-                .background(Brush.verticalGradient(listOf(SurfaceElevated, Color(0xFF0A0A0F))))
+                .background(Brush.verticalGradient(listOf(SurfaceElevated, BackgroundBlack)))
                 .background(Brush.radialGradient(listOf(NeonPurple.copy(alpha = 0.25f), Color.Transparent))),
             contentAlignment = Alignment.Center
         ) {

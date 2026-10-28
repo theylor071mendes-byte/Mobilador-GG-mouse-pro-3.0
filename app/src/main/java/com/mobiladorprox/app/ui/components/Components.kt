@@ -65,7 +65,7 @@ fun GlowButton(
             .clip(RoundedCornerShape(18.dp))
             .background(
                 Brush.horizontalGradient(
-                    colors = if (enabled) listOf(NeonPurple, NeonBlue) else listOf(Color(0xFF3A3A48), Color(0xFF3A3A48))
+                    colors = if (enabled) listOf(NeonPurple, NeonBlue) else listOf(Color(0xFF3A2C2E), Color(0xFF3A2C2E))
                 )
             )
             .border(1.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(18.dp))
@@ -166,7 +166,7 @@ fun LabeledSlider(
             colors = SliderDefaults.colors(
                 thumbColor = NeonBlue,
                 activeTrackColor = NeonPurple,
-                inactiveTrackColor = Color(0xFF34344A)
+                inactiveTrackColor = Color(0xFF34272A)
             )
         )
     }

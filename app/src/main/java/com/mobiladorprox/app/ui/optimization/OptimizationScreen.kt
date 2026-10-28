@@ -81,7 +81,7 @@ fun OptimizationScreen(factory: ViewModelFactory? = null) {
                     progress = { fraction.coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth(),
                     color = if (ramInfo.lowMemory) StatusAmber else NeonBlue,
-                    trackColor = Color(0xFF2A2A3A)
+                    trackColor = Color(0xFF2A2024)
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(

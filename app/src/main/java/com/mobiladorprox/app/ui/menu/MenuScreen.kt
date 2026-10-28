@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Mouse
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Tune
@@ -39,6 +40,7 @@ private data class MenuItem(val title: String, val description: String, val icon
 
 private val menuItems = listOf(
     MenuItem("Editar Keymaps", "Posicione botões, vincule teclas e cliques do mouse, dentro do jogo", Icons.Filled.Edit, ROUTE_KEYMAPS),
+    MenuItem("Teste de Teclado e Mouse", "Confirme se as teclas e os cliques estão sendo reconhecidos", Icons.Filled.Keyboard, Routes.INPUT_TEST),
     MenuItem("Otimização", "Informações reais do aparelho e atalhos de ajuste", Icons.Filled.Tune, Routes.OPTIMIZATION),
     MenuItem("Configurações de desempenho", "Perfis ALTO / MÉDIO / BAIXO / MUITO BAIXO", Icons.Filled.Speed, Routes.PERFORMANCE),
     MenuItem("Configurações do mouse", "Sensibilidade e polling rate, dentro do jogo", Icons.Filled.Mouse, ROUTE_MOUSE_SETTINGS)

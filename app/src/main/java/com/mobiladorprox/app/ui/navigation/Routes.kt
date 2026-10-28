@@ -6,4 +6,5 @@ object Routes {
     const val MENU = "menu"
     const val OPTIMIZATION = "optimization"
     const val PERFORMANCE = "performance"
+    const val INPUT_TEST = "input_test"
 }
