@@ -53,6 +53,17 @@ class MapperAccessibilityService : AccessibilityService() {
      */
     var onForegroundAppChanged: ((String) -> Unit)? = null
 
+    /**
+     * Pacote da janela realmente ativa agora (consulta ao vivo, não um evento
+     * antigo guardado). Usado para reconfirmar, no momento de decidir, se o
+     * usuário de fato saiu do jogo — evita encerrar o mapeador por causa de um
+     * "flash" passageiro do launcher durante a própria animação de abertura
+     * do jogo (quando a janela do jogo nunca deixou de estar ativa de verdade).
+     * Não lê texto nem elementos da tela, só o nome do pacote da janela.
+     */
+    fun currentForegroundPackage(): String? =
+        runCatching { rootInActiveWindow?.packageName?.toString() }.getOrNull()
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         serviceInfo = AccessibilityServiceInfo().apply {

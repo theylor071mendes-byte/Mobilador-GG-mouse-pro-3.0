@@ -478,6 +478,13 @@ class OverlayService : Service() {
      * mapeador após uma pequena margem — cancelada se o jogo voltar ao
      * primeiro plano antes disso (ex.: o usuário só abriu a barra de
      * notificações rapidamente).
+     *
+     * Antes de encerrar de fato, reconfirma qual é a janela realmente ativa
+     * naquele momento (em vez de confiar só no evento que disparou o
+     * temporizador). Isso evita um bug em que a própria animação de abrir o
+     * jogo chegava a reportar um "flash" passageiro do launcher do Android
+     * no meio da transição — e o mapeador se encerrava sozinho (a bolinha
+     * sumia) mesmo com o usuário permanecendo no jogo o tempo todo.
      */
     private fun handleForegroundAppChanged(foregroundPackage: String) {
         val activeGame = MapperState.activeGamePackage ?: return
@@ -490,8 +497,13 @@ class OverlayService : Service() {
         pendingStopJob?.cancel()
         pendingStopJob = serviceScope.launch {
             delay(AUTO_STOP_GRACE_MS)
-            Log.d(TAG, "Saiu do jogo selecionado ($activeGame); encerrando o mapeador automaticamente.")
-            stopSelf()
+            val reallyStillAway = MapperAccessibilityService.instance
+                ?.currentForegroundPackage()
+                ?.let { it != activeGame } ?: false
+            if (reallyStillAway) {
+                Log.d(TAG, "Saiu do jogo selecionado ($activeGame); encerrando o mapeador automaticamente.")
+                stopSelf()
+            }
         }
     }
 
@@ -614,7 +626,7 @@ class OverlayService : Service() {
         const val EXTRA_PROFILE_ID = "extra_profile_id"
         const val EXTRA_START_EDIT_MODE = "extra_start_edit_mode"
         const val EXTRA_OPEN_MOUSE_SETTINGS = "extra_open_mouse_settings"
-        private const val AUTO_STOP_GRACE_MS = 1500L
+        private const val AUTO_STOP_GRACE_MS = 2200L
 
         private val COLOR_NEON_PURPLE = Color.parseColor("#9D4DFF")
         private val COLOR_NEON_BLUE = Color.parseColor("#00E5FF")
