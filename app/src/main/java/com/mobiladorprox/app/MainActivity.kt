@@ -91,6 +91,16 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * Repassa os eventos brutos de tecla física para a tela de Teste de
+     * Teclado e Mouse (quando ela estiver visível e ouvindo), antes de
+     * qualquer tratamento padrão do Compose (foco, navegação por teclado).
+     */
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        if (com.mobiladorprox.app.ui.inputtest.InputTestBridge.listener?.invoke(event) == true) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    /**
      * Lê a rota que o painel flutuante (bola) pediu para abrir — "Editar
      * Keymaps" ou "Configurações do mouse" — quando o app é reaberto a
      * partir dele enquanto o jogo está em primeiro plano.

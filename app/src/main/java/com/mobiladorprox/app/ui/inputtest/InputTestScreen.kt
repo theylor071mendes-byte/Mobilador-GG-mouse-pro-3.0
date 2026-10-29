@@ -1,7 +1,7 @@
 package com.mobiladorprox.app.ui.inputtest
 
+import android.view.KeyEvent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,7 +18,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -28,13 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.isTertiaryPressed
@@ -62,7 +56,6 @@ fun InputTestScreen() {
     val context = LocalContext.current
     val connection = remember { DeviceInfoProvider.getConnectionInfo(context) }
 
-    val focusRequester = remember { FocusRequester() }
     var lastKeyLabel by remember { mutableStateOf("Nenhuma tecla ainda") }
     val pressedKeys = remember { mutableStateMapOf<Int, String>() }
     var totalKeyPresses by remember { mutableIntStateOf(0) }
@@ -72,27 +65,29 @@ fun InputTestScreen() {
     var middleDown by remember { mutableStateOf(false) }
     var totalClicks by remember { mutableIntStateOf(0) }
 
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    // Ouve os KeyEvent brutos repassados pela Activity (dispatchKeyEvent),
+    // em vez de depender do foco/captura de teclado do Compose — evita
+    // qualquer ambiguidade e funciona mesmo com um simples toque na tela.
+    DisposableEffect(Unit) {
+        InputTestBridge.listener = { event ->
+            val code = event.keyCode
+            val label = keyLabelFor(code)
+            when (event.action) {
+                KeyEvent.ACTION_DOWN -> {
+                    if (pressedKeys[code] == null) totalKeyPresses++
+                    pressedKeys[code] = label
+                    lastKeyLabel = label
+                }
+                KeyEvent.ACTION_UP -> pressedKeys.remove(code)
+            }
+            true
+        }
+        onDispose { InputTestBridge.listener = null }
+    }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .focusRequester(focusRequester)
-            .focusable()
-            .onKeyEvent { event ->
-                val code = event.key.nativeKeyCode
-                val label = keyLabelFor(code)
-                when (event.type) {
-                    KeyEventType.KeyDown -> {
-                        if (pressedKeys[code] == null) totalKeyPresses++
-                        pressedKeys[code] = label
-                        lastKeyLabel = label
-                    }
-                    KeyEventType.KeyUp -> pressedKeys.remove(code)
-                    else -> Unit
-                }
-                true
-            }
             .pointerInput(Unit) {
                 awaitPointerEventScope {
                     while (true) {
