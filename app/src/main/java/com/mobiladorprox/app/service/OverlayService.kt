@@ -127,6 +127,7 @@ class OverlayService : Service() {
             frameFlushScheduled = false
         }
         MapperAccessibilityService.instance?.onForegroundAppChanged = null
+        MapperAccessibilityService.instance?.onToggleCameraRequested = null
         removeEditOverlay()
         removeCaptureWindow()
         removePanel()
@@ -259,7 +260,7 @@ class OverlayService : Service() {
         // Camada transparente em tela cheia só para detectar toque fora do
         // painel e fechá-lo; fica atrás do painel em si, que é adicionado
         // na sequência e recebe o toque normalmente dentro dos seus limites.
-        val scrim = View(this).apply { setOnClickListener { removePanel() } }
+        val scrim = View(this).apply { OverlayStyle.setSafeClick(this) { removePanel() } }
         val scrimParams = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
@@ -320,7 +321,7 @@ class OverlayService : Service() {
         val button = OverlayStyle.pillButton(this, label, COLOR_NEON_PURPLE, false)
         button.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         button.gravity = Gravity.CENTER
-        button.setOnClickListener { action() }
+        OverlayStyle.setSafeClick(button) { action() }
         return button
     }
 
@@ -458,6 +459,9 @@ class OverlayService : Service() {
             // Permite que o mapeador se encerre sozinho assim que o usuário
             // sair do jogo selecionado (ver handleForegroundAppChanged).
             MapperAccessibilityService.instance?.onForegroundAppChanged = ::handleForegroundAppChanged
+            // Liga a tecla/botão configurado do componente "Visualização de
+            // câmera" (GestureType.LOOK_TOGGLE) à captura real do mouse.
+            MapperAccessibilityService.instance?.onToggleCameraRequested = ::toggleCameraCapture
             onLoaded()
         }
     }
@@ -603,11 +607,12 @@ class OverlayService : Service() {
         val centerX = binding?.xPercent ?: 0.6f
         val centerY = binding?.yPercent ?: 0.45f
         val sensitivity = MapperState.mouseSensitivity / 5f // 5.0 é o valor neutro (~1x)
-        // Velocidade horizontal/vertical ajustável (0 a 1000; 500 = padrão/1x)
-        // no controle livre de câmera ("Suspender mouse"), independente da
-        // sensibilidade geral acima.
-        val speedXMultiplier = MapperState.freeLookSpeedX / 500f
-        val speedYMultiplier = MapperState.freeLookSpeedY / 500f
+        // Velocidade horizontal/vertical ajustável (0 a 1000; 500 = padrão/1x).
+        // Se o componente "Visualização de câmera" tiver sua própria
+        // velocidade configurada, ela tem prioridade sobre a velocidade
+        // geral de "Suspender mouse".
+        val speedXMultiplier = (binding?.cameraSpeedX ?: MapperState.freeLookSpeedX) / 500f
+        val speedYMultiplier = (binding?.cameraSpeedY ?: MapperState.freeLookSpeedY) / 500f
         val scaledDx = smoothedDx * sensitivity * speedXMultiplier
         val scaledDy = smoothedDy * sensitivity * speedYMultiplier
         MapperAccessibilityService.instance?.dispatchLookSwipe(centerX, centerY, scaledDx, scaledDy)

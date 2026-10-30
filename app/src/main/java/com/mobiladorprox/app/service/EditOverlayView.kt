@@ -112,7 +112,7 @@ class EditOverlayView(
 
         reopenChip = OverlayStyle.pillButton(context, "✎ Editar", OverlayStyle.NEON_BLUE, true).apply {
             visibility = View.GONE
-            setOnClickListener { setPreviewMode(false) }
+            OverlayStyle.setSafeClick(this) { setPreviewMode(false) }
         }
         addView(
             reopenChip,
@@ -158,27 +158,27 @@ class EditOverlayView(
         fun space() = View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(6), 1) }
 
         row.addView(OverlayStyle.pillButton(context, "Sair", OverlayStyle.NEON_PURPLE, false).apply {
-            setOnClickListener { confirmExitIfNeeded() }
+            OverlayStyle.setSafeClick(this) { confirmExitIfNeeded() }
         })
         row.addView(space())
         row.addView(OverlayStyle.pillButton(context, "Salvar", OverlayStyle.NEON_BLUE, true).apply {
-            setOnClickListener { saveNow() }
+            OverlayStyle.setSafeClick(this) { saveNow() }
         })
         row.addView(space())
         row.addView(OverlayStyle.pillButton(context, "+ Componente", OverlayStyle.NEON_PURPLE, true).apply {
-            setOnClickListener { addComponent(null, null) }
+            OverlayStyle.setSafeClick(this) { addComponent(null, null) }
         })
         row.addView(space())
         row.addView(OverlayStyle.pillButton(context, "Visualização", OverlayStyle.NEON_BLUE, false).apply {
-            setOnClickListener { setPreviewMode(true) }
+            OverlayStyle.setSafeClick(this) { setPreviewMode(true) }
         })
         row.addView(space())
         row.addView(OverlayStyle.pillButton(context, "Mouse", OverlayStyle.NEON_PURPLE, false).apply {
-            setOnClickListener { openMouseSettingsDialog() }
+            OverlayStyle.setSafeClick(this) { openMouseSettingsDialog() }
         })
         row.addView(space())
         mouseToggleChip = OverlayStyle.pillButton(context, "Suspender mouse", OverlayStyle.NEON_GREEN, false).apply {
-            setOnClickListener {
+            OverlayStyle.setSafeClick(this) {
                 if (!callbacks.isAccessibilityReady()) {
                     toast("Ative o Serviço de Acessibilidade para usar a câmera")
                 } else {
@@ -191,7 +191,7 @@ class EditOverlayView(
         row.addView(space())
         cameraSpeedGearChip = OverlayStyle.pillButton(context, "⚙", OverlayStyle.NEON_GREEN, true).apply {
             visibility = View.GONE
-            setOnClickListener { openFreeLookSpeedDialog() }
+            OverlayStyle.setSafeClick(this) { openFreeLookSpeedDialog() }
         }
         row.addView(cameraSpeedGearChip)
         refreshMouseToggle()
@@ -279,17 +279,21 @@ class EditOverlayView(
 
     private fun buildChip(binding: KeyBindingEntity): View {
         val isAnalog = binding.gestureType == GestureType.ANALOG_STICK.name
+        val isCamera = binding.gestureType == GestureType.LOOK_TOGGLE.name
         val chip: View = if (isAnalog) {
             AnalogStickView(context).apply { dim = previewMode }
         } else {
             TextView(context).apply {
-                text = binding.label.take(2).uppercase()
-                setTextColor(Color.WHITE)
+                // O componente "Visualização de câmera" ganha um glifo e cor
+                // próprios (verde, mesma convenção do "Suspender mouse") para
+                // ficar reconhecível no editor em meio aos outros botões.
+                text = if (isCamera) "👁" else binding.label.take(2).uppercase()
+                setTextColor(if (isCamera) Color.BLACK else Color.WHITE)
                 gravity = Gravity.CENTER
                 textSize = if (previewMode) 9f else 11f
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
-                    setColor(OverlayStyle.NEON_PURPLE)
+                    setColor(if (isCamera) OverlayStyle.NEON_GREEN else OverlayStyle.NEON_PURPLE)
                     alpha = if (previewMode) 110 else 230
                     if (!previewMode) setStroke(dp(1), Color.WHITE)
                 }
@@ -422,7 +426,7 @@ class EditOverlayView(
                 setColor(OverlayStyle.DANGER_RED)
                 setStroke(dp(1), Color.WHITE)
             }
-            setOnClickListener {
+            OverlayStyle.setSafeClick(this) {
                 bindings.removeAll { it.id == id }
                 dirty = true
                 clearSelection()
@@ -482,10 +486,16 @@ class EditOverlayView(
         }
         root.addView(labelField)
 
-        val gestureGroup = RadioGroup(context).apply { orientation = RadioGroup.HORIZONTAL }
+        // Vertical (em vez de horizontal) para o rótulo mais longo de
+        // "Visualização de câmera" não ficar espremido ao lado dos outros.
+        val gestureGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
         val gestureOptions = listOf(
             GestureType.TAP to "Toque",
             GestureType.HOLD to "Segurar",
+            GestureType.LOOK_TOGGLE to "Visualização de câmera",
+            GestureType.ANALOG_STICK to "Analógico"
+        )
+        val defaultLabelFor = mapOf(
             GestureType.LOOK_TOGGLE to "Câmera",
             GestureType.ANALOG_STICK to "Analógico"
         )
@@ -501,6 +511,75 @@ class EditOverlayView(
         }
         root.addView(sectionLabel("Tipo de gesto"))
         root.addView(gestureGroup)
+
+        fun currentGestureType(): GestureType =
+            (0 until gestureGroup.childCount)
+                .map { gestureGroup.getChildAt(it) as RadioButton }
+                .firstOrNull { it.isChecked }
+                ?.tag as? GestureType ?: GestureType.TAP
+
+        // Campos de velocidade própria da câmera (só existem/ficam visíveis
+        // quando o tipo de gesto é "Visualização de câmera"); lidos de volta
+        // no botão "Pronto" mais abaixo.
+        var cameraSpeedXField: EditText? = null
+        var cameraSpeedYField: EditText? = null
+        val cameraSpeedSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+
+        fun renderCameraSpeedSection() {
+            cameraSpeedSection.removeAllViews()
+            cameraSpeedXField = null
+            cameraSpeedYField = null
+            if (currentGestureType() != GestureType.LOOK_TOGGLE) return
+            cameraSpeedSection.addView(sectionLabel("Velocidade horizontal da câmera (deste componente)"))
+            cameraSpeedSection.addView(
+                EditText(context).apply {
+                    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    setText(formatDecimal(binding.cameraSpeedX ?: callbacks.getFreeLookSpeedX(), 1))
+                    hint = "0 a 1000"
+                }.also { cameraSpeedXField = it }
+            )
+            cameraSpeedSection.addView(sectionLabel("Velocidade vertical da puxada (deste componente)"))
+            cameraSpeedSection.addView(
+                EditText(context).apply {
+                    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+                    setText(formatDecimal(binding.cameraSpeedY ?: callbacks.getFreeLookSpeedY(), 1))
+                    hint = "0 a 1000"
+                }.also { cameraSpeedYField = it }
+            )
+            cameraSpeedSection.addView(TextView(context).apply {
+                text = "Deixe como está para usar a mesma velocidade geral de \"Suspender mouse\". " +
+                    "A tecla/botão escolhido abaixo liga e desliga esta visualização a qualquer momento; " +
+                    "um clique do mouse só funciona enquanto a câmera livre já estiver ativada " +
+                    "(o Android não permite capturar o clique de fora do app antes disso)."
+                setTextColor(Color.parseColor("#A0A0C0"))
+                textSize = 11f
+                setPadding(0, dp(6), 0, dp(4))
+            })
+        }
+        renderCameraSpeedSection()
+        root.addView(cameraSpeedSection)
+
+        // Ao trocar o tipo de gesto num componente novo, sugere um nome
+        // padrão (ex.: "Câmera") enquanto o usuário não tiver digitado o
+        // próprio; nunca sobrescreve um nome já editado manualmente.
+        var lastAutoLabel: String? = if (isNew) defaultLabelFor[currentGesture] else null
+        gestureGroup.setOnCheckedChangeListener { _, _ ->
+            renderCameraSpeedSection()
+            if (!isNew) return@setOnCheckedChangeListener
+            val type = currentGestureType()
+            val suggestion = defaultLabelFor[type]
+            val current = labelField.text.toString()
+            when {
+                suggestion != null && (current.isBlank() || current == "Novo" || current == lastAutoLabel) -> {
+                    labelField.setText(suggestion)
+                    lastAutoLabel = suggestion
+                }
+                suggestion == null && current == lastAutoLabel -> {
+                    labelField.setText("Novo")
+                    lastAutoLabel = null
+                }
+            }
+        }
 
         var selectedKeyCode = binding.keyCode
         val isMouseInitially = MouseButtons.isMouseButton(binding.keyCode)
@@ -518,7 +597,7 @@ class EditOverlayView(
                 setTextColor(OverlayStyle.NEON_BLUE)
             }
             refreshKeyLabel(btn)
-            btn.setOnClickListener {
+            OverlayStyle.setSafeClick(btn) {
                 btn.text = "Pressione a tecla…"
                 btn.isFocusableInTouchMode = true
                 btn.requestFocus()
@@ -539,7 +618,7 @@ class EditOverlayView(
             options.forEach { (code, label) ->
                 row.addView(
                     OverlayStyle.pillButton(context, label, OverlayStyle.NEON_BLUE, selectedKeyCode == code).apply {
-                        setOnClickListener {
+                        OverlayStyle.setSafeClick(this) {
                             selectedKeyCode = code
                             inputDetail.removeAllViews()
                             inputDetail.addView(buildMouseDetail())
@@ -564,13 +643,13 @@ class EditOverlayView(
             text = "Teclado"
             setPadding(dp(12), dp(6), dp(12), dp(6))
             setTextColor(OverlayStyle.NEON_PURPLE)
-            setOnClickListener { showKeyboardMode() }
+            OverlayStyle.setSafeClick(this) { showKeyboardMode() }
         }
         mouseModeBtn.apply {
             text = "Mouse"
             setPadding(dp(12), dp(6), dp(12), dp(6))
             setTextColor(OverlayStyle.NEON_PURPLE)
-            setOnClickListener { showMouseMode() }
+            OverlayStyle.setSafeClick(this) { showMouseMode() }
         }
         val modeRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -596,7 +675,7 @@ class EditOverlayView(
                 setPadding(0, dp(10), 0, dp(4))
             }
             root.addView(deleteBtn)
-            deleteBtn.setOnClickListener {
+            OverlayStyle.setSafeClick(deleteBtn) {
                 bindings.removeAll { it.id == binding.id }
                 dirty = true
                 if (selectedBindingId == binding.id) clearSelection()
@@ -613,16 +692,25 @@ class EditOverlayView(
                 val index = bindings.indexOfFirst { it.id == binding.id }
                 if (index >= 0) {
                     val sizePercent = 0.6f + sizeSeek.progress * 0.1f
-                    val gestureType = (0 until gestureGroup.childCount)
-                        .map { gestureGroup.getChildAt(it) as RadioButton }
-                        .firstOrNull { it.isChecked }
-                        ?.tag as? GestureType ?: GestureType.TAP
+                    val gestureType = currentGestureType()
                     val newLabel = labelField.text.toString().ifBlank { binding.label }
+                    // Velocidade própria da câmera: só se aplica a componentes
+                    // "Visualização de câmera"; para qualquer outro tipo fica
+                    // nula (sem efeito, cai no padrão geral se um dia o botão
+                    // voltar a ser do tipo câmera).
+                    val cameraSpeedX = if (gestureType == GestureType.LOOK_TOGGLE) {
+                        cameraSpeedXField?.text?.toString()?.let(::parseDecimal)?.coerceIn(0f, 1000f)
+                    } else null
+                    val cameraSpeedY = if (gestureType == GestureType.LOOK_TOGGLE) {
+                        cameraSpeedYField?.text?.toString()?.let(::parseDecimal)?.coerceIn(0f, 1000f)
+                    } else null
                     bindings[index] = bindings[index].copy(
                         label = newLabel,
                         keyCode = selectedKeyCode,
                         gestureType = gestureType.name,
-                        sizePercent = sizePercent
+                        sizePercent = sizePercent,
+                        cameraSpeedX = cameraSpeedX,
+                        cameraSpeedY = cameraSpeedY
                     )
                     dirty = true
                     renderChips()

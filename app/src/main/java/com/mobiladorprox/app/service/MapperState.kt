@@ -64,8 +64,13 @@ object MapperState {
         activeProfileId = profile.id
         activeProfileName = profile.profileName
         activeGamePackage = profile.packageName
+        // ANALOG_STICK fica de fora: seu movimento vem das teclas WASD fixas
+        // (tratadas à parte em onKeyEvent), não de uma tecla própria sua.
+        // LOOK_TOGGLE PRECISA continuar aqui: é a tecla/botão configurável
+        // (ex.: "M") que liga/desliga a Visualização de câmera — excluí-la
+        // deixava esse botão sem nenhuma tecla vinculada de verdade.
         bindingsByKeyCode = bindings
-            .filter { it.gestureType != GestureType.LOOK_TOGGLE.name && it.gestureType != GestureType.ANALOG_STICK.name }
+            .filter { it.gestureType != GestureType.ANALOG_STICK.name }
             .associateBy { it.keyCode }
         cameraBinding = bindings.firstOrNull { it.gestureType == GestureType.LOOK_TOGGLE.name }
         analogStickBinding = bindings.firstOrNull { it.gestureType == GestureType.ANALOG_STICK.name }

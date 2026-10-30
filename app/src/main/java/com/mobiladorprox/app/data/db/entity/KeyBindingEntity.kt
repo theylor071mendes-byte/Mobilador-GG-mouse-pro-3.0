@@ -34,5 +34,13 @@ data class KeyBindingEntity(
     /** Escala visual do botão (1f = tamanho padrão). Permite redimensionar no editor. */
     val sizePercent: Float = 1f,
     /** Usado apenas por ANALOG_STICK: 4 keyCodes separados por vírgula, na ordem cima,baixo,esquerda,direita. */
-    val extraKeyCodes: String? = null
+    val extraKeyCodes: String? = null,
+    /**
+     * Usado apenas por LOOK_TOGGLE ("Visualização de câmera"): velocidade
+     * horizontal/vertical própria deste componente (0 a 1000). Quando nulo,
+     * usa a velocidade geral definida em "Suspender mouse"
+     * ([com.mobiladorprox.app.service.MapperState.freeLookSpeedX]/Y).
+     */
+    val cameraSpeedX: Float? = null,
+    val cameraSpeedY: Float? = null
 )

@@ -3,6 +3,8 @@ package com.mobiladorprox.app.service
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
+import android.view.MotionEvent
+import android.view.View
 import android.widget.TextView
 import kotlin.math.roundToInt
 
@@ -43,5 +45,44 @@ object OverlayStyle {
             setStroke(dp(context, 1), accent)
         }
         return view
+    }
+
+    /**
+     * Define a ação de um botão do overlay nativo exigindo um toque real:
+     * um ACTION_DOWN seguido de um ACTION_UP dentro dos limites da própria
+     * view. Correção do bug em que apenas passar/deixar a seta do mouse em
+     * cima de um botão disparava a ação sozinho: diferente de
+     * [View.setOnClickListener] (que usa performClick() internamente e pode
+     * reagir a eventos sintéticos de clique do framework), este listener
+     * nunca recebe eventos de hover (ACTION_HOVER_ENTER/MOVE/EXIT percorrem
+     * um despacho totalmente separado, onHoverEvent, que setOnTouchListener
+     * não escuta) e só executa a ação se o próprio dedo/cursor tiver descido
+     * (ACTION_DOWN) e subido (ACTION_UP) dentro da view — um ACTION_CANCEL
+     * (ex.: o sistema interrompeu o toque) nunca dispara a ação.
+     */
+    fun setSafeClick(view: View, action: () -> Unit) {
+        var pressed = false
+        view.isClickable = true
+        view.setOnTouchListener { v, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    pressed = true
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    val wasPressed = pressed
+                    pressed = false
+                    if (wasPressed && event.x >= 0f && event.x <= v.width && event.y >= 0f && event.y <= v.height) {
+                        action()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    pressed = false
+                    true
+                }
+                else -> false
+            }
+        }
     }
 }
