@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Mendes Mouse Pro</string>
+    <string name="notification_channel_name">Overlay Ativo</string>
+    <string name="notification_title">Mendes Mouse Pro ativo</string>
+    <string name="notification_text">Toque para abrir o painel</string>
+</resources>

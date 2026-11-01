@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Mouse body -->
+    <path
+        android:fillColor="#FF3333"
+        android:pathData="M54,20 C38,20 26,32 26,50 L26,72 C26,82 34,90 44,90 L64,90 C74,90 82,82 82,72 L82,50 C82,32 70,20 54,20 Z"/>
+
+    <!-- Center divider line -->
+    <path
+        android:strokeColor="#0D0D0D"
+        android:strokeWidth="2.5"
+        android:pathData="M54,20 L54,52"/>
+
+    <!-- Left click zone -->
+    <path
+        android:fillColor="#CC2222"
+        android:pathData="M54,20 C46,20 38,24 33,30 L33,50 L54,50 L54,20 Z"/>
+
+    <!-- Right click zone -->
+    <path
+        android:fillColor="#DD2828"
+        android:pathData="M54,20 C62,20 70,24 75,30 L75,50 L54,50 L54,20 Z"/>
+
+    <!-- Scroll wheel -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,34 C48,31 50,29 54,29 C58,29 60,31 60,34 L60,46 C60,49 58,51 54,51 C50,51 48,49 48,46 Z"/>
+
+    <!-- Scroll wheel highlight -->
+    <path
+        android:fillColor="#FF5555"
+        android:pathData="M51,34 L51,46 C51,47.5 52,48.5 54,48.5 C56,48.5 57,47.5 57,46 L57,34 C57,32.5 56,31.5 54,31.5 C52,31.5 51,32.5 51,34 Z"/>
+
+    <!-- M letter -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,66 L38,78 L41.5,78 L41.5,70 L45,75 L48.5,70 L48.5,78 L52,78 L52,66 L48.5,66 L45,71 L41.5,66 Z"/>
+
+    <!-- P letter -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M55,66 L55,78 L58.5,78 L58.5,74 L62,74 C64.5,74 66,72.5 66,70 C66,67.5 64.5,66 62,66 Z M58.5,69 L62,69 C62.8,69 63.2,69.5 63.2,70 C63.2,70.5 62.8,71 62,71 L58.5,71 Z"/>
+
+</vector>

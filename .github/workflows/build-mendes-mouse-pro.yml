@@ -1,0 +1,73 @@
+name: Build Mendes Mouse Pro APK
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'mendes-mouse-pro/**'
+      - '.github/workflows/build-mendes-mouse-pro.yml'
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: mendes-mouse-pro
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Accept Android SDK licenses
+        run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses || true
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: Build debug APK
+        id: build
+        run: |
+          set -o pipefail
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log
+        continue-on-error: true
+
+      - name: Publicar log de build como Release (para diagnóstico)
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "mmp-logs-${{ github.run_number }}" build.log \
+            --title "MendesMousePro - log de build - run ${{ github.run_number }}" \
+            --notes "Log completo (stdout+stderr) do gradle assembleDebug para o commit ${{ github.sha }}." \
+            || gh release upload "mmp-logs-${{ github.run_number }}" build.log --clobber
+
+      - name: Falhar o job se a compilação falhou
+        if: steps.build.outcome == 'failure'
+        run: exit 1
+
+      - name: Upload APK artifact
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mendes-mouse-pro-debug-apk
+          path: mendes-mouse-pro/app/build/outputs/apk/debug/*.apk
+
+      - name: Publicar APK como Release
+        if: steps.build.outcome == 'success'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "mmp-build-${{ github.run_number }}" \
+            app/build/outputs/apk/debug/*.apk \
+            --title "Mendes Mouse Pro - build ${{ github.run_number }}" \
+            --notes "APK de depuração gerado automaticamente pelo GitHub Actions a partir do commit ${{ github.sha }}."
