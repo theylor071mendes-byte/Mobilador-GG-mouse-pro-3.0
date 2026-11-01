@@ -554,16 +554,25 @@ class OverlayService : Service() {
             onDelta = { dx, dy -> onPointerDelta(dx, dy) },
             onButton = { code, pressed -> MapperAccessibilityService.instance?.handleMouseButton(code, pressed) }
         )
-        // IMPORTANTE: a janela da captura NÃO pode ter FLAG_NOT_FOCUSABLE.
-        // requestPointerCapture() só funciona numa view que tem foco de janela;
-        // sem essa flag a view pode ganhar foco e a captura do mouse realmente
-        // funciona. FLAG_NOT_TOUCH_MODAL impede que toques fora dela sejam
-        // consumidos por ela, mantendo o jogo interativo normalmente.
+        // Flags para interceptar onGenericMotionEvent (mouse) sem usar
+        // requestPointerCapture (que exige toque real prévio na janela).
+        //
+        // FLAG_NOT_FOCUSABLE: não rouba foco do jogo (teclado continua indo
+        //   para o jogo); a janela ainda recebe eventos de ponteiro (mouse).
+        // FLAG_NOT_TOUCHABLE: normalmente bloquearia toques, MAS o Android
+        //   ainda entrega GenericMotionEvent de mouse independente desta flag.
+        //   Removida aqui para garantir entrega de ACTION_BUTTON_PRESS.
+        // FLAG_LAYOUT_IN_SCREEN: ocupa a tela inteira de forma confiável.
+        //
+        // Resultado: esta janela invisível fica no topo do Z-order e recebe
+        // todos os eventos de hover/movimento do mouse antes do jogo, sem
+        // precisar de foco nem de toque prévio.
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
             PixelFormat.TRANSLUCENT
         )
         runCatching {
@@ -576,12 +585,17 @@ class OverlayService : Service() {
     }
 
     private fun removeCaptureWindow() {
-        captureView?.let {
-            runCatching { it.releasePointerCapture() }
-            safeRemoveView(it)
-        }
+        // Solta o toque virtual da câmera ANTES de remover a janela para não
+        // deixar um "dedo" preso na tela quando o mouse é liberado.
+        MapperAccessibilityService.instance?.releaseLookOnly()
+        captureView?.let { safeRemoveView(it) }
         captureView = null
         MapperState.isCameraCaptureActive = false
+        // Limpa acumuladores para o próximo uso começar limpo.
+        pendingDx = 0f
+        pendingDy = 0f
+        smoothedDx = 0f
+        smoothedDy = 0f
     }
 
     /**

@@ -149,6 +149,14 @@ class MapperAccessibilityService : AccessibilityService() {
         virtualTouches.clear()
     }
 
+    /**
+     * Solta apenas o toque da câmera (sem afetar analógico/hold em andamento).
+     * Chamado quando a captura do mouse é desligada.
+     */
+    fun releaseLookOnly() {
+        releaseLookTouch()
+    }
+
     override fun onKeyEvent(event: KeyEvent): Boolean {
         if (!MapperState.isMapperActive) return super.onKeyEvent(event)
 
@@ -388,18 +396,74 @@ class MapperAccessibilityService : AccessibilityService() {
 
     private fun holdTouchId(actionId: String) = "hold:$actionId"
 
-    /** Usado pelo OverlayService durante a captura do mouse para mover a câmera. */
+    /**
+     * Movimenta a câmera usando um "dedo virtual" persistente — em vez de
+     * começar um novo toque (DOWN) a cada frame, o gesto é encadeado a partir
+     * da posição anterior com [continueStroke].
+     *
+     * Começar do ponto central a cada frame gera toque fantasma: o sistema
+     * vê ACTION_DOWN no centro → ACTION_UP em outro lugar e interpreta como
+     * tap, accionando botões da HUD por acidente. Com cursor persistente o
+     * sistema nunca vê um novo DOWN — apenas um arrasto contínuo.
+     *
+     * Quando o cursor está muito longe do centro (acúmulo de deriva após
+     * muitos frames), volta suavemente ao centro num único segmento, sem
+     * soltar o dedo. Isso evita que o cursor "prenda" numa borda da tela.
+     */
     fun dispatchLookSwipe(centerXPercent: Float, centerYPercent: Float, dxPixels: Float, dyPixels: Float) {
         if (dxPixels == 0f && dyPixels == 0f) return
-        val (cx, cy) = percentToPixels(centerXPercent, centerYPercent)
-        val endX = (cx + dxPixels).coerceIn(0f, resources.displayMetrics.widthPixels.toFloat())
-        val endY = (cy + dyPixels).coerceIn(0f, resources.displayMetrics.heightPixels.toFloat())
-        val path = Path().apply {
-            moveTo(cx, cy)
-            lineTo(endX, endY)
+        val metrics = resources.displayMetrics
+        val maxDx = metrics.widthPixels.toFloat()
+        val maxDy = metrics.heightPixels.toFloat()
+
+        val touch = virtualTouches[LOOK_TOUCH_ID]
+        if (touch == null) {
+            // Primeiro movimento: desce o dedo no centro e já arrasta.
+            val (cx, cy) = percentToPixels(centerXPercent, centerYPercent)
+            val endX = (cx + dxPixels).coerceIn(0f, maxDx)
+            val endY = (cy + dyPixels).coerceIn(0f, maxDy)
+            val path = Path().apply { moveTo(cx, cy); lineTo(endX, endY) }
+            val stroke = GestureDescription.StrokeDescription(path, 0, LOOK_STROKE_MS, true)
+            virtualTouches[LOOK_TOUCH_ID] = VirtualTouch(stroke, endX, endY)
+            dispatchCombined()
+            return
         }
-        val stroke = GestureDescription.StrokeDescription(path, 0, LOOK_STROKE_MS, false)
-        dispatchTransient("look", stroke, endX, endY)
+
+        // Cursor já existe: encadeia a partir da posição atual (sem novo DOWN).
+        val (cx, cy) = percentToPixels(centerXPercent, centerYPercent)
+        val curX = touch.x
+        val curY = touch.y
+        val distFromCenter = kotlin.math.hypot(curX - cx, curY - cy)
+
+        val endX: Float
+        val endY: Float
+        if (distFromCenter > LOOK_MAX_DRIFT_PX) {
+            // Cursor muito longe do centro: volta ao centro sem soltar,
+            // ignorando o delta deste frame — o próximo já funciona normal.
+            endX = cx
+            endY = cy
+        } else {
+            endX = (curX + dxPixels).coerceIn(0f, maxDx)
+            endY = (curY + dyPixels).coerceIn(0f, maxDy)
+        }
+
+        val path = Path().apply { moveTo(curX, curY); lineTo(endX, endY) }
+        touch.stroke = touch.stroke.continueStroke(path, 0, LOOK_STROKE_MS, true)
+        touch.x = endX
+        touch.y = endY
+        dispatchCombined()
+    }
+
+    /**
+     * Solta o "dedo virtual" da câmera. Chamado quando a captura do mouse
+     * é desligada para não deixar um toque preso na tela.
+     */
+    fun releaseLookTouch() {
+        val touch = virtualTouches[LOOK_TOUCH_ID] ?: return
+        val path = Path().apply { moveTo(touch.x, touch.y) }
+        touch.stroke = touch.stroke.continueStroke(path, 0, RELEASE_STROKE_MS, false)
+        dispatchCombined()
+        virtualTouches.remove(LOOK_TOUCH_ID)
     }
 
     override fun onDestroy() {
@@ -422,6 +486,9 @@ class MapperAccessibilityService : AccessibilityService() {
         private const val ANALOG_RADIUS_PX = 140f
         private const val ANALOG_MOVE_MS = 60L
         private const val ANALOG_TOUCH_ID = "analog"
+        private const val LOOK_TOUCH_ID = "look"
+        /** Deriva máxima do cursor da câmera antes de recentrar (pixels). */
+        private const val LOOK_MAX_DRIFT_PX = 200f
 
         private val WASD_CODES = setOf(
             KeyEvent.KEYCODE_W, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_S, KeyEvent.KEYCODE_D

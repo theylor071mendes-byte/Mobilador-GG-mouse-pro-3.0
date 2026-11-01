@@ -1,21 +1,47 @@
 package com.mobiladorprox.app.service
 
 import android.content.Context
+import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.View
 import com.mobiladorprox.app.data.model.MouseButtons
 
 /**
- * View transparente usada para "suspender" o cursor do mouse (API oficial de
- * Captura de Ponteiro, disponível desde o Android 8.0) e ler seu movimento
- * relativo, traduzido em gestos de câmera pelo [MapperAccessibilityService].
+ * View transparente que intercepta todos os eventos de mouse enquanto o
+ * cursor está "suspenso" (câmera livre ativa).
  *
- * ⚠️  A janela que hospeda esta view NÃO pode ter FLAG_NOT_FOCUSABLE:
- * sem foco, [requestPointerCapture] nunca é chamado e o mouse não é capturado.
- * A view em si é focável ([isFocusableInTouchMode] = true) e chama
- * [requestFocus] + [requestPointerCapture] assim que é anexada à janela
- * (via [onAttachedToWindow]) para garantir a sequência correta independente
- * de quando / se [onWindowFocusChanged] dispara.
+ * ## Por que não usar requestPointerCapture()
+ * A API oficial de captura de ponteiro ([View.requestPointerCapture]) exige
+ * que a janela tenha recebido um toque REAL antes do pedido — caso contrário
+ * o Android simplesmente ignora a chamada sem nenhuma mensagem de erro.
+ * Em overlays de serviço (TYPE_APPLICATION_OVERLAY) isso nunca acontece de
+ * forma confiável porque o jogo é quem recebe os toques, não esta camada.
+ *
+ * ## Solução: onGenericMotionEvent com SOURCE_MOUSE
+ * Qualquer janela overlay pode interceptar eventos genéricos de motion
+ * (mouse, joystick…) usando [onGenericMotionEvent]. Desde que a janela esteja
+ * no topo da pilha de Z, o sistema entrega TODOS os eventos de mouse a ela
+ * antes de passá-los para a janela de baixo — sem precisar de nenhum pedido
+ * de captura formal e sem precisar de foco de janela.
+ *
+ * O movimento relativo do mouse é lido em [MotionEvent.AXIS_RELATIVE_X] /
+ * [MotionEvent.AXIS_RELATIVE_Y] (Android 8+), que contêm o deslocamento
+ * bruto do sensor, não a posição absoluta do cursor na tela. Isso é exatamente
+ * o que precisamos para mover a câmera.
+ *
+ * ## Limitação de hover
+ * Enquanto esta janela estiver ativa, eventos de hover (HOVER_MOVE) do mouse
+ * chegam aqui em vez de chegar ao jogo. Retornamos `true` para consumi-los e
+ * evitar que o jogo trate o hover como toque. O botão físico do mouse gera
+ * ACTION_BUTTON_PRESS/RELEASE que também é interceptado aqui e traduzido em
+ * ação mapeada via [onButton].
+ *
+ * ## Flags de janela corretas
+ * A janela que hospeda esta view deve usar:
+ *   FLAG_NOT_FOCUSABLE | FLAG_LAYOUT_IN_SCREEN
+ * Não precisa de foco de teclado — só recebe eventos de ponteiro.
+ * FLAG_NOT_TOUCHABLE NÃO deve ser usado aqui pois impede a entrega de
+ * GenericMotionEvent ao overlay.
  */
 class PointerCaptureView(
     context: Context,
@@ -26,30 +52,47 @@ class PointerCaptureView(
     private var lastButtonState = 0
 
     init {
-        isFocusable = true
-        isFocusableInTouchMode = true
+        // Não precisa de foco de teclado — só intercepta eventos de ponteiro.
+        isFocusable = false
+        isFocusableInTouchMode = false
     }
 
-    override fun onAttachedToWindow() {
-        super.onAttachedToWindow()
-        // Pedir foco imediatamente ao ser adicionado; depois pede a captura.
-        post {
-            requestFocus()
-            runCatching { requestPointerCapture() }
+    /**
+     * Intercepta movimento do mouse (SOURCE_MOUSE).
+     * Retorna true para consumir o evento e impedir que o jogo processe
+     * o hover como toque ou clique.
+     */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.source and InputDevice.SOURCE_MOUSE == 0) return false
+
+        when (event.actionMasked) {
+            MotionEvent.ACTION_HOVER_MOVE,
+            MotionEvent.ACTION_MOVE -> {
+                // AXIS_RELATIVE_X/Y = deslocamento bruto do sensor desde o
+                // último evento. Disponível em Android 8.0+ (API 26).
+                val dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
+                val dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
+                if (dx != 0f || dy != 0f) onDelta(dx, dy)
+                handleButtons(event.buttonState)
+                return true
+            }
+            MotionEvent.ACTION_BUTTON_PRESS,
+            MotionEvent.ACTION_BUTTON_RELEASE -> {
+                handleButtons(event.buttonState)
+                return true
+            }
+            MotionEvent.ACTION_HOVER_ENTER,
+            MotionEvent.ACTION_HOVER_EXIT -> return true
         }
+        return false
     }
 
-    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
-        super.onWindowFocusChanged(hasWindowFocus)
-        if (hasWindowFocus) {
-            runCatching { requestPointerCapture() }
-        }
-    }
-
-    override fun onCapturedPointerEvent(event: MotionEvent): Boolean {
-        // Em modo de captura, getX()/getY() = movimento relativo do mouse
-        // desde o último evento, não uma posição absoluta na tela.
-        onDelta(event.x, event.y)
+    /**
+     * Também intercepta toques diretos para o caso de o mouse enviar
+     * ACTION_DOWN/UP em vez de ACTION_BUTTON_PRESS/RELEASE em alguns dispositivos.
+     */
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.source and InputDevice.SOURCE_MOUSE == 0) return false
         handleButtons(event.buttonState)
         return true
     }
