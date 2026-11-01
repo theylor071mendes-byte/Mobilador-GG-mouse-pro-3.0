@@ -6,15 +6,16 @@ import android.view.View
 import com.mobiladorprox.app.data.model.MouseButtons
 
 /**
- * View transparente e focável usada apenas para "suspender" o cursor do
- * mouse (API oficial de Captura de Ponteiro, disponível desde o Android 8.0)
- * e ler seu movimento relativo, que é então traduzido em pequenos gestos de
- * câmera pelo [MapperAccessibilityService]. Não captura toques de dedo
- * (FLAG_NOT_TOUCHABLE na janela que a hospeda), apenas o mouse.
+ * View transparente usada para "suspender" o cursor do mouse (API oficial de
+ * Captura de Ponteiro, disponível desde o Android 8.0) e ler seu movimento
+ * relativo, traduzido em gestos de câmera pelo [MapperAccessibilityService].
  *
- * Também detecta os cliques do mouse (esquerdo/direito/meio) enquanto a
- * captura está ativa, repassando-os como "teclas virtuais" — é o único
- * canal oficial para ler cliques de mouse durante a captura de ponteiro.
+ * ⚠️  A janela que hospeda esta view NÃO pode ter FLAG_NOT_FOCUSABLE:
+ * sem foco, [requestPointerCapture] nunca é chamado e o mouse não é capturado.
+ * A view em si é focável ([isFocusableInTouchMode] = true) e chama
+ * [requestFocus] + [requestPointerCapture] assim que é anexada à janela
+ * (via [onAttachedToWindow]) para garantir a sequência correta independente
+ * de quando / se [onWindowFocusChanged] dispara.
  */
 class PointerCaptureView(
     context: Context,
@@ -24,6 +25,20 @@ class PointerCaptureView(
 
     private var lastButtonState = 0
 
+    init {
+        isFocusable = true
+        isFocusableInTouchMode = true
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // Pedir foco imediatamente ao ser adicionado; depois pede a captura.
+        post {
+            requestFocus()
+            runCatching { requestPointerCapture() }
+        }
+    }
+
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
         if (hasWindowFocus) {
@@ -32,8 +47,8 @@ class PointerCaptureView(
     }
 
     override fun onCapturedPointerEvent(event: MotionEvent): Boolean {
-        // Em modo de captura, getX()/getY() representam o movimento relativo
-        // do mouse desde o último evento, não uma posição absoluta na tela.
+        // Em modo de captura, getX()/getY() = movimento relativo do mouse
+        // desde o último evento, não uma posição absoluta na tela.
         onDelta(event.x, event.y)
         handleButtons(event.buttonState)
         return true

@@ -16,7 +16,6 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.EditText
 import android.widget.FrameLayout
-import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -31,11 +30,13 @@ import kotlin.math.roundToInt
 
 /**
  * Overlay nativo (sem Compose) exibido sobre o jogo de verdade: o jogo
- * continua visível atrás (visualização real, "FPS"), e esta camada
- * transparente mostra os botões virtuais do perfil ativo para editar ao
- * vivo — arrastar para reposicionar, tocar para renomear/trocar
- * tecla-ou-clique/redimensionar/excluir, tocar duas vezes em área vazia ou
- * "+ Componente" para criar um novo.
+ * continua visível atrás e esta camada transparente mostra os botões virtuais
+ * para editar ao vivo — arrastar para reposicionar, toque simples para
+ * selecionar (X de exclusão rápida), toque duplo para configurar.
+ *
+ * Toolbar reorganizada em 2 linhas para caber sem scroll em qualquer tela.
+ * Botão "Câmera" com feedback de cor + rótulo dinâmico. SeekBar para
+ * velocidade da câmera em vez de campo numérico.
  */
 class EditOverlayView(
     context: Context,
@@ -54,11 +55,8 @@ class EditOverlayView(
         fun getPollingRate(): PollingRate
         fun setPollingRate(rate: PollingRate)
 
-        /** Velocidade horizontal da câmera no controle livre, 0 a 1000 (500 = padrão). */
         fun getFreeLookSpeedX(): Float
         fun setFreeLookSpeedX(value: Float)
-
-        /** Velocidade vertical da puxada (olhar p/ cima/baixo) no controle livre, 0 a 1000 (500 = padrão). */
         fun getFreeLookSpeedY(): Float
         fun setFreeLookSpeedY(value: Float)
     }
@@ -71,14 +69,12 @@ class EditOverlayView(
     private var editorHeight = 0
     private var nextTempId = -1L
 
-    /** Botão selecionado (tocado uma vez) exibindo o X de exclusão rápida por cima. */
     private var selectedBindingId: Long? = null
     private var deleteBadge: TextView? = null
 
     private val chipLayer = FrameLayout(context)
-    private val toolbarScroll: HorizontalScrollView
-    private lateinit var mouseToggleChip: TextView
-    private lateinit var cameraSpeedGearChip: TextView
+    private lateinit var toolbarContainer: LinearLayout
+    private lateinit var cameraBtn: TextView
     private val reopenChip: TextView
 
     private val gestureDetector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -90,7 +86,6 @@ class EditOverlayView(
         }
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            // Tocar em área vazia do editor desseleciona o botão atual (some o X).
             if (selectedBindingId != null) clearSelection()
             return true
         }
@@ -101,12 +96,14 @@ class EditOverlayView(
         addView(chipLayer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         chipLayer.setOnTouchListener { _, event -> gestureDetector.onTouchEvent(event); true }
 
-        toolbarScroll = buildToolbar()
+        toolbarContainer = buildToolbar()
         addView(
-            toolbarScroll,
-            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+            toolbarContainer,
+            LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                 gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-                topMargin = dp(26)
+                topMargin = dp(18)
+                leftMargin = dp(12)
+                rightMargin = dp(12)
             }
         )
 
@@ -140,85 +137,109 @@ class EditOverlayView(
 
     private fun dp(v: Int) = OverlayStyle.dp(context, v)
 
-    // ---------------------------------------------------------------------
-    // Barra superior
-    // ---------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
+    // Toolbar em 2 linhas — sem scroll, sempre visível
+    // ─────────────────────────────────────────────────────────────────────────
 
-    private fun buildToolbar(): HorizontalScrollView {
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(10), dp(8), dp(10), dp(8))
+    private fun buildToolbar(): LinearLayout {
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
             background = GradientDrawable().apply {
-                cornerRadius = dp(22).toFloat()
+                cornerRadius = dp(18).toFloat()
                 setColor(OverlayStyle.PANEL_BG)
                 setStroke(dp(1), OverlayStyle.NEON_PURPLE)
             }
+            setPadding(dp(10), dp(8), dp(10), dp(8))
         }
-        fun space() = View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(6), 1) }
 
-        row.addView(OverlayStyle.pillButton(context, "Sair", OverlayStyle.NEON_PURPLE, false).apply {
+        fun row() = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        fun space() = View(context).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(6), 1)
+        }
+
+        // Linha 1: Sair | Salvar | Visualização | + Componente
+        val row1 = row()
+        row1.addView(OverlayStyle.pillButton(context, "← Sair", OverlayStyle.NEON_PURPLE, false).apply {
             OverlayStyle.setSafeClick(this) { confirmExitIfNeeded() }
         })
-        row.addView(space())
-        row.addView(OverlayStyle.pillButton(context, "Salvar", OverlayStyle.NEON_BLUE, true).apply {
+        row1.addView(space())
+        row1.addView(OverlayStyle.pillButton(context, "✔ Salvar", OverlayStyle.NEON_BLUE, true).apply {
             OverlayStyle.setSafeClick(this) { saveNow() }
         })
-        row.addView(space())
-        row.addView(OverlayStyle.pillButton(context, "+ Componente", OverlayStyle.NEON_PURPLE, true).apply {
-            OverlayStyle.setSafeClick(this) { addComponent(null, null) }
-        })
-        row.addView(space())
-        row.addView(OverlayStyle.pillButton(context, "Visualização", OverlayStyle.NEON_BLUE, false).apply {
+        row1.addView(space())
+        row1.addView(OverlayStyle.pillButton(context, "👁 Preview", OverlayStyle.NEON_PURPLE, false).apply {
             OverlayStyle.setSafeClick(this) { setPreviewMode(true) }
         })
-        row.addView(space())
-        row.addView(OverlayStyle.pillButton(context, "Mouse", OverlayStyle.NEON_PURPLE, false).apply {
+        row1.addView(space())
+        row1.addView(OverlayStyle.pillButton(context, "+ Adicionar", OverlayStyle.NEON_PURPLE, true).apply {
+            OverlayStyle.setSafeClick(this) { addComponent(null, null) }
+        })
+        container.addView(row1)
+
+        // Separador fino
+        container.addView(View(context).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply {
+                topMargin = dp(6); bottomMargin = dp(6)
+            }
+            setBackgroundColor(Color.WHITE.and(0x22FFFFFF.toInt()))
+        })
+
+        // Linha 2: Câmera (toggle com feedback visual) | ⚙ Vel. câmera | Mouse
+        val row2 = row()
+        cameraBtn = buildCameraButton()
+        row2.addView(cameraBtn)
+        row2.addView(space())
+        row2.addView(OverlayStyle.pillButton(context, "⚙ Câmera", OverlayStyle.NEON_GREEN, false).apply {
+            OverlayStyle.setSafeClick(this) { openFreeLookSpeedDialog() }
+        })
+        row2.addView(space())
+        row2.addView(OverlayStyle.pillButton(context, "🖱 Mouse", OverlayStyle.NEON_PURPLE, false).apply {
             OverlayStyle.setSafeClick(this) { openMouseSettingsDialog() }
         })
-        row.addView(space())
-        mouseToggleChip = OverlayStyle.pillButton(context, "Suspender mouse", OverlayStyle.NEON_GREEN, false).apply {
+        container.addView(row2)
+
+        return container
+    }
+
+    private fun buildCameraButton(): TextView {
+        val active = callbacks.isMouseCaptureActive()
+        return OverlayStyle.pillButton(
+            context,
+            if (active) "● Câmera ATIVA" else "○ Câmera livre",
+            OverlayStyle.NEON_GREEN,
+            active
+        ).apply {
             OverlayStyle.setSafeClick(this) {
                 if (!callbacks.isAccessibilityReady()) {
                     toast("Ative o Serviço de Acessibilidade para usar a câmera")
                 } else {
                     callbacks.onToggleMouseCapture()
-                    refreshMouseToggle()
+                    refreshCameraButton()
                 }
             }
         }
-        row.addView(mouseToggleChip)
-        row.addView(space())
-        cameraSpeedGearChip = OverlayStyle.pillButton(context, "⚙", OverlayStyle.NEON_GREEN, true).apply {
-            visibility = View.GONE
-            OverlayStyle.setSafeClick(this) { openFreeLookSpeedDialog() }
-        }
-        row.addView(cameraSpeedGearChip)
-        refreshMouseToggle()
-
-        return HorizontalScrollView(context).apply {
-            isHorizontalScrollBarEnabled = false
-            overScrollMode = View.OVER_SCROLL_NEVER
-            addView(row)
-        }
     }
 
-    private fun mouseToggleLabel() = if (callbacks.isMouseCaptureActive()) "Suspender mouse: ATIVO (câmera livre)" else "Suspender mouse"
-
-    fun refreshMouseToggle() {
+    fun refreshCameraButton() {
         val active = callbacks.isMouseCaptureActive()
-        mouseToggleChip.text = mouseToggleLabel()
-        val bg = mouseToggleChip.background as? GradientDrawable
+        cameraBtn.text = if (active) "● Câmera ATIVA" else "○ Câmera livre"
+        val bg = cameraBtn.background as? GradientDrawable
         bg?.setColor(if (active) OverlayStyle.NEON_GREEN else OverlayStyle.CHIP_IDLE_BG)
         bg?.setStroke(dp(1), OverlayStyle.NEON_GREEN)
-        mouseToggleChip.setTextColor(if (active) Color.BLACK else OverlayStyle.NEON_GREEN)
-        cameraSpeedGearChip.visibility = if (active) View.VISIBLE else View.GONE
+        cameraBtn.setTextColor(if (active) Color.BLACK else OverlayStyle.NEON_GREEN)
     }
+
+    // Mantido para compatibilidade com chamadas externas (OverlayService)
+    fun refreshMouseToggle() = refreshCameraButton()
 
     private fun setPreviewMode(preview: Boolean) {
         previewMode = preview
         clearSelection()
-        toolbarScroll.visibility = if (preview) View.GONE else View.VISIBLE
+        toolbarContainer.visibility = if (preview) View.GONE else View.VISIBLE
         reopenChip.visibility = if (preview) View.VISIBLE else View.GONE
         renderChips()
     }
@@ -242,12 +263,12 @@ class EditOverlayView(
     private fun saveNow() {
         callbacks.onSave(bindings.toList())
         markSaved()
-        toast("Configuração salva")
+        toast("Configuração salva ✔")
     }
 
-    // ---------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
     // Chips (botões virtuais)
-    // ---------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun renderChips() {
         chipLayer.removeAllViews()
@@ -263,10 +284,10 @@ class EditOverlayView(
         renderDeleteBadge()
     }
 
-    /** Analógico vem maior por padrão (cruz com 4 pontas), demais botões continuam circulares e menores. */
     private fun componentSizePx(binding: KeyBindingEntity): Int {
         val base = if (binding.gestureType == GestureType.ANALOG_STICK.name) 96 else 40
-        return dp((base * binding.sizePercent).roundToInt())
+        // Range expandido: 0.4 a 3.0 (era 0.6 a 1.8)
+        return dp((base * binding.sizePercent.coerceIn(0.4f, 3.0f)).roundToInt())
     }
 
     private fun chipLayoutParams(binding: KeyBindingEntity): FrameLayout.LayoutParams {
@@ -284,9 +305,6 @@ class EditOverlayView(
             AnalogStickView(context).apply { dim = previewMode }
         } else {
             TextView(context).apply {
-                // O componente "Visualização de câmera" ganha um glifo e cor
-                // próprios (verde, mesma convenção do "Suspender mouse") para
-                // ficar reconhecível no editor em meio aos outros botões.
                 text = if (isCamera) "👁" else binding.label.take(2).uppercase()
                 setTextColor(if (isCamera) Color.BLACK else Color.WHITE)
                 gravity = Gravity.CENTER
@@ -306,10 +324,8 @@ class EditOverlayView(
     }
 
     /**
-     * Visual do analógico virtual (WASD) no estilo de referência pedido: uma
-     * cruz com um ponto direcional em cima/baixo/esquerda/direita ao redor de
-     * um centro, sobre uma base translúcida — em vez do chip circular simples
-     * usado pelos demais botões. Desenhado em Canvas para ficar leve.
+     * Visual do analógico virtual (WASD): cruz com ponto direcional em cada
+     * extremidade ao redor de um centro, sobre base translúcida.
      */
     private inner class AnalogStickView(ctx: Context) : View(ctx) {
         var dim: Boolean = false
@@ -325,8 +341,7 @@ class EditOverlayView(
             val w = width.toFloat()
             val h = height.toFloat()
             if (w <= 0f || h <= 0f) return
-            val cx = w / 2f
-            val cy = h / 2f
+            val cx = w / 2f; val cy = h / 2f
             val armLen = minOf(w, h) * 0.40f
             val dotR = minOf(w, h) * 0.13f
             val mul = if (dim) 110 else 235
@@ -350,20 +365,16 @@ class EditOverlayView(
     }
 
     private inner class ChipDragListener(private val bindingId: Long) : View.OnTouchListener {
-        private var downX = 0f
-        private var downY = 0f
-        private var startLeft = 0
-        private var startTop = 0
+        private var downX = 0f; private var downY = 0f
+        private var startLeft = 0; private var startTop = 0
         private var moved = false
 
         override fun onTouch(v: View, event: MotionEvent): Boolean {
             val lp = v.layoutParams as? FrameLayout.LayoutParams ?: return false
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downX = event.rawX
-                    downY = event.rawY
-                    startLeft = lp.leftMargin
-                    startTop = lp.topMargin
+                    downX = event.rawX; downY = event.rawY
+                    startLeft = lp.leftMargin; startTop = lp.topMargin
                     moved = false
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -393,9 +404,9 @@ class EditOverlayView(
         }
     }
 
-    // ---------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
     // Seleção + X de exclusão rápida
-    // ---------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun selectChip(bindingId: Long) {
         selectedBindingId = bindingId
@@ -415,12 +426,12 @@ class EditOverlayView(
         val id = selectedBindingId ?: return
         val chip = chipViews[id] ?: return
         val chipLp = chip.layoutParams as? FrameLayout.LayoutParams ?: return
-        val badgeSize = dp(22)
+        val badgeSize = dp(24)
         val badge = TextView(context).apply {
             text = "✕"
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
-            textSize = 12f
+            textSize = 13f
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(OverlayStyle.DANGER_RED)
@@ -469,9 +480,9 @@ class EditOverlayView(
         openBindingDialog(binding, isNew = true)
     }
 
-    // ---------------------------------------------------------------------
-    // Diálogo nativo de edição do botão
-    // ---------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
+    // Diálogo de edição do botão
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun openBindingDialog(binding: KeyBindingEntity, isNew: Boolean = false) {
         val pad = dp(18)
@@ -484,16 +495,15 @@ class EditOverlayView(
             setText(binding.label)
             hint = "Nome da ação"
         }
+        root.addView(sectionLabel("Nome do botão"))
         root.addView(labelField)
 
-        // Vertical (em vez de horizontal) para o rótulo mais longo de
-        // "Visualização de câmera" não ficar espremido ao lado dos outros.
         val gestureGroup = RadioGroup(context).apply { orientation = RadioGroup.VERTICAL }
         val gestureOptions = listOf(
-            GestureType.TAP to "Toque",
-            GestureType.HOLD to "Segurar",
-            GestureType.LOOK_TOGGLE to "Visualização de câmera",
-            GestureType.ANALOG_STICK to "Analógico"
+            GestureType.TAP to "Toque (clique rápido)",
+            GestureType.HOLD to "Segurar (mantém pressionado)",
+            GestureType.LOOK_TOGGLE to "Visualização de câmera (liga/desliga câmera livre)",
+            GestureType.ANALOG_STICK to "Analógico (WASD → movimento do personagem)"
         )
         val defaultLabelFor = mapOf(
             GestureType.LOOK_TOGGLE to "Câmera",
@@ -501,13 +511,12 @@ class EditOverlayView(
         )
         val currentGesture = runCatching { GestureType.valueOf(binding.gestureType) }.getOrNull() ?: GestureType.TAP
         gestureOptions.forEach { (type, label) ->
-            val rb = RadioButton(context).apply {
+            gestureGroup.addView(RadioButton(context).apply {
                 text = label
                 id = View.generateViewId()
                 isChecked = type == currentGesture
                 tag = type
-            }
-            gestureGroup.addView(rb)
+            })
         }
         root.addView(sectionLabel("Tipo de gesto"))
         root.addView(gestureGroup)
@@ -518,39 +527,68 @@ class EditOverlayView(
                 .firstOrNull { it.isChecked }
                 ?.tag as? GestureType ?: GestureType.TAP
 
-        // Campos de velocidade própria da câmera (só existem/ficam visíveis
-        // quando o tipo de gesto é "Visualização de câmera"); lidos de volta
-        // no botão "Pronto" mais abaixo.
-        var cameraSpeedXField: EditText? = null
-        var cameraSpeedYField: EditText? = null
+        // ── Seção de velocidade da câmera (SeekBar) ──────────────────────────
+        var cameraSpeedXSeek: SeekBar? = null
+        var cameraSpeedYSeek: SeekBar? = null
+        var cameraSpeedXLabel: TextView? = null
+        var cameraSpeedYLabel: TextView? = null
         val cameraSpeedSection = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
 
         fun renderCameraSpeedSection() {
             cameraSpeedSection.removeAllViews()
-            cameraSpeedXField = null
-            cameraSpeedYField = null
+            cameraSpeedXSeek = null; cameraSpeedYSeek = null
+            cameraSpeedXLabel = null; cameraSpeedYLabel = null
             if (currentGestureType() != GestureType.LOOK_TOGGLE) return
-            cameraSpeedSection.addView(sectionLabel("Velocidade horizontal da câmera (deste componente)"))
-            cameraSpeedSection.addView(
-                EditText(context).apply {
-                    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-                    setText(formatDecimal(binding.cameraSpeedX ?: callbacks.getFreeLookSpeedX(), 1))
-                    hint = "0 a 1000"
-                }.also { cameraSpeedXField = it }
+
+            fun makeSpeedRow(labelText: String, initialValue: Float): Pair<TextView, SeekBar> {
+                val row = LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(0, dp(4), 0, 0)
+                }
+                val valueLabel = TextView(context).apply {
+                    setTextColor(OverlayStyle.NEON_BLUE)
+                    textSize = 13f
+                    text = initialValue.roundToInt().toString()
+                    minWidth = dp(42)
+                    gravity = Gravity.END
+                }
+                val seek = SeekBar(context).apply {
+                    max = 1000
+                    progress = initialValue.roundToInt().coerceIn(0, 1000)
+                    layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                    setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                        override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
+                            valueLabel.text = p.toString()
+                        }
+                        override fun onStartTrackingTouch(sb: SeekBar) {}
+                        override fun onStopTrackingTouch(sb: SeekBar) {}
+                    })
+                }
+                row.addView(seek)
+                row.addView(View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(8), 1) })
+                row.addView(valueLabel)
+                cameraSpeedSection.addView(sectionLabel(labelText))
+                cameraSpeedSection.addView(row)
+                return valueLabel to seek
+            }
+
+            val (lx, sx) = makeSpeedRow(
+                "Velocidade horizontal (0–1000)",
+                binding.cameraSpeedX ?: callbacks.getFreeLookSpeedX()
             )
-            cameraSpeedSection.addView(sectionLabel("Velocidade vertical da puxada (deste componente)"))
-            cameraSpeedSection.addView(
-                EditText(context).apply {
-                    inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-                    setText(formatDecimal(binding.cameraSpeedY ?: callbacks.getFreeLookSpeedY(), 1))
-                    hint = "0 a 1000"
-                }.also { cameraSpeedYField = it }
+            cameraSpeedXLabel = lx; cameraSpeedXSeek = sx
+
+            val (ly, sy) = makeSpeedRow(
+                "Velocidade vertical (0–1000)",
+                binding.cameraSpeedY ?: callbacks.getFreeLookSpeedY()
             )
+            cameraSpeedYLabel = ly; cameraSpeedYSeek = sy
+
             cameraSpeedSection.addView(TextView(context).apply {
-                text = "Deixe como está para usar a mesma velocidade geral de \"Suspender mouse\". " +
-                    "A tecla/botão escolhido abaixo liga e desliga esta visualização a qualquer momento; " +
-                    "um clique do mouse só funciona enquanto a câmera livre já estiver ativada " +
-                    "(o Android não permite capturar o clique de fora do app antes disso)."
+                text = "A tecla/botão abaixo liga e desliga a câmera livre. " +
+                    "Clique do mouse só funciona enquanto a câmera estiver ativa " +
+                    "(limitação do Android)."
                 setTextColor(Color.parseColor("#A0A0C0"))
                 textSize = 11f
                 setPadding(0, dp(6), 0, dp(4))
@@ -559,9 +597,7 @@ class EditOverlayView(
         renderCameraSpeedSection()
         root.addView(cameraSpeedSection)
 
-        // Ao trocar o tipo de gesto num componente novo, sugere um nome
-        // padrão (ex.: "Câmera") enquanto o usuário não tiver digitado o
-        // próprio; nunca sobrescreve um nome já editado manualmente.
+        // Auto-label ao trocar tipo de gesto em novo botão
         var lastAutoLabel: String? = if (isNew) defaultLabelFor[currentGesture] else null
         gestureGroup.setOnCheckedChangeListener { _, _ ->
             renderCameraSpeedSection()
@@ -581,6 +617,7 @@ class EditOverlayView(
             }
         }
 
+        // ── Seleção de tecla ou botão do mouse ───────────────────────────────
         var selectedKeyCode = binding.keyCode
         val isMouseInitially = MouseButtons.isMouseButton(binding.keyCode)
         val keyboardModeBtn = TextView(context)
@@ -630,23 +667,17 @@ class EditOverlayView(
             return row
         }
 
-        fun showKeyboardMode() {
-            inputDetail.removeAllViews()
-            inputDetail.addView(buildKeyboardDetail())
-        }
-        fun showMouseMode() {
-            inputDetail.removeAllViews()
-            inputDetail.addView(buildMouseDetail())
-        }
+        fun showKeyboardMode() { inputDetail.removeAllViews(); inputDetail.addView(buildKeyboardDetail()) }
+        fun showMouseMode() { inputDetail.removeAllViews(); inputDetail.addView(buildMouseDetail()) }
 
         keyboardModeBtn.apply {
-            text = "Teclado"
+            text = "⌨ Teclado"
             setPadding(dp(12), dp(6), dp(12), dp(6))
             setTextColor(OverlayStyle.NEON_PURPLE)
             OverlayStyle.setSafeClick(this) { showKeyboardMode() }
         }
         mouseModeBtn.apply {
-            text = "Mouse"
+            text = "🖱 Mouse"
             setPadding(dp(12), dp(6), dp(12), dp(6))
             setTextColor(OverlayStyle.NEON_PURPLE)
             OverlayStyle.setSafeClick(this) { showMouseMode() }
@@ -656,21 +687,44 @@ class EditOverlayView(
             addView(keyboardModeBtn)
             addView(mouseModeBtn)
         }
-        root.addView(sectionLabel("Tecla ou clique do mouse"))
+        root.addView(sectionLabel("Tecla ou botão do mouse"))
         root.addView(modeRow)
         root.addView(inputDetail)
         if (isMouseInitially) showMouseMode() else showKeyboardMode()
 
-        root.addView(sectionLabel("Tamanho do botão"))
-        val sizeSeek = SeekBar(context).apply {
-            max = 12
-            progress = (((binding.sizePercent - 0.6f) / 0.1f).roundToInt()).coerceIn(0, 12)
+        // ── Tamanho do botão — SeekBar com range expandido ───────────────────
+        root.addView(sectionLabel("Tamanho do componente"))
+        val sizeValueLabel = TextView(context).apply {
+            setTextColor(OverlayStyle.NEON_BLUE)
+            textSize = 13f
         }
-        root.addView(sizeSeek)
+        // Range: 0.4 a 3.0 em passos de 0.1 → max = 26
+        val sizeSeek = SeekBar(context).apply {
+            max = 26
+            val initialProgress = (((binding.sizePercent - 0.4f) / 0.1f).roundToInt()).coerceIn(0, 26)
+            progress = initialProgress
+            sizeValueLabel.text = "%.1f×".format(0.4f + initialProgress * 0.1f)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
+                    sizeValueLabel.text = "%.1f×".format(0.4f + p * 0.1f)
+                }
+                override fun onStartTrackingTouch(sb: SeekBar) {}
+                override fun onStopTrackingTouch(sb: SeekBar) {}
+            })
+        }
+        val sizeRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(sizeSeek, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(8), 1) })
+            addView(sizeValueLabel)
+        }
+        root.addView(sizeRow)
 
+        // Botão excluir (só em edições de botões existentes)
         if (!isNew) {
             val deleteBtn = TextView(context).apply {
-                text = "Excluir botão"
+                text = "🗑 Excluir este botão"
                 setTextColor(Color.parseColor("#FF4F64"))
                 setPadding(0, dp(10), 0, dp(4))
             }
@@ -686,23 +740,19 @@ class EditOverlayView(
         val scroll = android.widget.ScrollView(context).apply { addView(root) }
 
         val dialog = AlertDialog.Builder(context)
-            .setTitle(if (isNew) "Novo botão" else "Editar botão")
+            .setTitle(if (isNew) "Novo componente" else "Editar componente")
             .setView(scroll)
-            .setPositiveButton("Pronto") { _, _ ->
+            .setPositiveButton("✔ Pronto") { _, _ ->
                 val index = bindings.indexOfFirst { it.id == binding.id }
                 if (index >= 0) {
-                    val sizePercent = 0.6f + sizeSeek.progress * 0.1f
+                    val sizePercent = 0.4f + sizeSeek.progress * 0.1f
                     val gestureType = currentGestureType()
                     val newLabel = labelField.text.toString().ifBlank { binding.label }
-                    // Velocidade própria da câmera: só se aplica a componentes
-                    // "Visualização de câmera"; para qualquer outro tipo fica
-                    // nula (sem efeito, cai no padrão geral se um dia o botão
-                    // voltar a ser do tipo câmera).
                     val cameraSpeedX = if (gestureType == GestureType.LOOK_TOGGLE) {
-                        cameraSpeedXField?.text?.toString()?.let(::parseDecimal)?.coerceIn(0f, 1000f)
+                        cameraSpeedXSeek?.progress?.toFloat()?.coerceIn(0f, 1000f)
                     } else null
                     val cameraSpeedY = if (gestureType == GestureType.LOOK_TOGGLE) {
-                        cameraSpeedYField?.text?.toString()?.let(::parseDecimal)?.coerceIn(0f, 1000f)
+                        cameraSpeedYSeek?.progress?.toFloat()?.coerceIn(0f, 1000f)
                     } else null
                     bindings[index] = bindings[index].copy(
                         label = newLabel,
@@ -726,24 +776,28 @@ class EditOverlayView(
         showOverlayDialog(dialog)
     }
 
-    // ---------------------------------------------------------------------
-    // Configurações do mouse (dentro do jogo, junto da edição de keymaps)
-    // ---------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
+    // Configurações do mouse
+    // ─────────────────────────────────────────────────────────────────────────
 
-    /** Chamado pela barra "Mouse" ou, ao entrar pelo Menu, automaticamente pelo Service. */
     fun openMouseSettingsDialog() {
         val pad = dp(18)
         val root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, pad) }
 
         root.addView(sectionLabel("Sensibilidade do mouse"))
-        val sensLabel = TextView(context).apply { setTextColor(Color.WHITE); textSize = 16f }
+        val sensLabel = TextView(context).apply { setTextColor(OverlayStyle.NEON_BLUE); textSize = 16f }
         var sensValue = callbacks.getMouseSensitivity()
-        fun refreshSensLabel() { sensLabel.text = formatDecimal(sensValue, 2) }
+        fun refreshSensLabel() { sensLabel.text = "%.1f×".format(sensValue) }
         refreshSensLabel()
         root.addView(sensLabel)
+        val sensRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
         val sensSeek = SeekBar(context).apply {
-            max = 190 // 1.00 a 20.00 em passos de 0,1
+            max = 190
             progress = (((sensValue - 1f) / 0.1f).roundToInt()).coerceIn(0, 190)
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar, progress: Int, fromUser: Boolean) {
                     sensValue = 1f + progress * 0.1f
@@ -753,12 +807,12 @@ class EditOverlayView(
                 override fun onStopTrackingTouch(seekBar: SeekBar) {}
             })
         }
-        root.addView(sensSeek)
+        sensRow.addView(sensSeek)
+        root.addView(sensRow)
 
-        root.addView(sectionLabel("Taxa de resposta (polling rate)"))
+        root.addView(sectionLabel("Taxa de resposta (referência)"))
         root.addView(TextView(context).apply {
-            text = "O Android não permite alterar de fato a taxa de resposta de um mouse USB/Bluetooth; " +
-                "fica salva só como referência, sem efeito simulado."
+            text = "O Android não permite alterar a taxa do hardware; fica salvo como referência."
             setTextColor(Color.parseColor("#A0A0C0"))
             textSize = 11f
             setPadding(0, 0, 0, dp(6))
@@ -777,9 +831,9 @@ class EditOverlayView(
 
         val scroll = android.widget.ScrollView(context).apply { addView(root) }
         val dialog = AlertDialog.Builder(context)
-            .setTitle("Configurações do mouse")
+            .setTitle("🖱 Configurações do mouse")
             .setView(scroll)
-            .setPositiveButton("Pronto") { _, _ ->
+            .setPositiveButton("✔ Aplicar") { _, _ ->
                 callbacks.setMouseSensitivity(sensValue)
                 val chosen = (0 until pollingGroup.childCount)
                     .map { pollingGroup.getChildAt(it) as RadioButton }
@@ -788,67 +842,72 @@ class EditOverlayView(
                 if (chosen != null) callbacks.setPollingRate(chosen)
                 toast("Configurações do mouse salvas")
             }
-            .setNegativeButton("Cancelar", null)
+            .setNegativeButton("Fechar", null)
             .create()
         showOverlayDialog(dialog)
     }
 
-    // ---------------------------------------------------------------------
-    // Controle livre de câmera ("Suspender mouse"): velocidade horizontal/vertical
-    // ---------------------------------------------------------------------
+    // ─────────────────────────────────────────────────────────────────────────
+    // Velocidade da câmera livre (global) — SeekBar
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun openFreeLookSpeedDialog() {
         val pad = dp(18)
         val root = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, pad) }
 
-        root.addView(sectionLabel("Controle livre de câmera"))
+        root.addView(sectionLabel("Câmera livre — velocidade global"))
         root.addView(TextView(context).apply {
-            text = "Com o mouse suspenso (botão verde), mova para qualquer direção para olhar livremente. " +
-                "Ajuste a velocidade abaixo (0 a 1000, aceita vírgula)."
+            text = "Configuração padrão usada por todos os componentes que não têm velocidade própria. " +
+                "Com o mouse suspenso, mova-o para qualquer direção para olhar livremente."
             setTextColor(Color.parseColor("#A0A0C0"))
             textSize = 12f
             setPadding(0, 0, 0, dp(10))
         })
 
-        root.addView(sectionLabel("Velocidade horizontal da câmera"))
-        val hField = EditText(context).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setText(formatDecimal(callbacks.getFreeLookSpeedX(), 1))
-            hint = "0 a 1000"
+        fun makeRow(labelText: String, initialValue: Float): Pair<TextView, SeekBar> {
+            val valueLabel = TextView(context).apply {
+                setTextColor(OverlayStyle.NEON_BLUE); textSize = 14f
+                text = initialValue.roundToInt().toString()
+                minWidth = dp(42); gravity = Gravity.END
+            }
+            val seek = SeekBar(context).apply {
+                max = 1000
+                progress = initialValue.roundToInt().coerceIn(0, 1000)
+                layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) { valueLabel.text = p.toString() }
+                    override fun onStartTrackingTouch(sb: SeekBar) {}
+                    override fun onStopTrackingTouch(sb: SeekBar) {}
+                })
+            }
+            val row = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                addView(seek); addView(View(context).apply { layoutParams = LinearLayout.LayoutParams(dp(8), 1) }); addView(valueLabel)
+            }
+            root.addView(sectionLabel(labelText)); root.addView(row)
+            return valueLabel to seek
         }
-        root.addView(hField)
 
-        root.addView(sectionLabel("Velocidade vertical da puxada"))
-        val vField = EditText(context).apply {
-            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            setText(formatDecimal(callbacks.getFreeLookSpeedY(), 1))
-            hint = "0 a 1000"
-        }
-        root.addView(vField)
+        val (_, hSeek) = makeRow("Velocidade horizontal (0–1000)", callbacks.getFreeLookSpeedX())
+        val (_, vSeek) = makeRow("Velocidade vertical / puxada (0–1000)", callbacks.getFreeLookSpeedY())
 
         val scroll = android.widget.ScrollView(context).apply { addView(root) }
         val dialog = AlertDialog.Builder(context)
-            .setTitle("Suspender mouse — câmera livre")
+            .setTitle("⚙ Câmera livre — velocidade")
             .setView(scroll)
-            .setPositiveButton("Aplicar") { _, _ ->
-                parseDecimal(hField.text.toString())?.let { callbacks.setFreeLookSpeedX(it.coerceIn(0f, 1000f)) }
-                parseDecimal(vField.text.toString())?.let { callbacks.setFreeLookSpeedY(it.coerceIn(0f, 1000f)) }
-                toast("Velocidade da câmera livre atualizada")
+            .setPositiveButton("✔ Aplicar") { _, _ ->
+                callbacks.setFreeLookSpeedX(hSeek.progress.toFloat())
+                callbacks.setFreeLookSpeedY(vSeek.progress.toFloat())
+                toast("Velocidade da câmera atualizada")
             }
             .setNegativeButton("Fechar", null)
             .create()
         showOverlayDialog(dialog)
     }
 
-    /** Aceita "," ou "." como separador decimal ao digitar. */
-    private fun parseDecimal(text: String): Float? = text.trim().replace(',', '.').toFloatOrNull()
-
-    /** Formata com vírgula (padrão brasileiro), sem casas decimais desnecessárias. */
-    private fun formatDecimal(value: Float, decimals: Int): String {
-        val formatted = String.format(Locale.US, "%.${decimals}f", value)
-        val trimmed = if (formatted.contains('.')) formatted.trimEnd('0').trimEnd('.') else formatted
-        return (trimmed.ifEmpty { "0" }).replace('.', ',')
-    }
+    // ─────────────────────────────────────────────────────────────────────────
+    // Utilitários
+    // ─────────────────────────────────────────────────────────────────────────
 
     private fun sectionLabel(text: String): TextView = TextView(context).apply {
         this.text = text
@@ -869,12 +928,7 @@ class EditOverlayView(
         android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
     }
 
-    /** Lista atual (com as edições em memória) — usada pelo Service para persistir no "Salvar". */
     fun currentBindings(): List<KeyBindingEntity> = bindings.toList()
-
     fun hasUnsavedChanges(): Boolean = dirty
-
-    fun markSaved() {
-        dirty = false
-    }
+    fun markSaved() { dirty = false }
 }

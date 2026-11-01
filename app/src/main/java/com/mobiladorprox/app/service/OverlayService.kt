@@ -281,12 +281,21 @@ class OverlayService : Service() {
             }
         }
 
-        // Painel enxuto: as duas únicas ações abrem o jogo e caem direto no
-        // editor dentro dele (keymaps ou, no segundo caso, já com as
-        // configurações do mouse abertas). Tocar fora do painel o fecha.
-        container.addView(simpleButton("✎ Editar Keymaps (no jogo)") { enterEditMode() })
+        // Painel com 3 ações: editar keymaps, câmera e configurações do mouse.
+        container.addView(simpleButton("✎ Editar Keymaps") { enterEditMode() })
         container.addView(spacerView())
-        container.addView(simpleButton("Configurações do mouse") {
+        // Botão câmera — label e cor mudam com o estado atual
+        val camLabel = if (MapperState.isCameraCaptureActive) "● Câmera ATIVA — desativar" else "○ Ativar câmera livre"
+        container.addView(simpleButton(camLabel) {
+            if (!MapperAccessibilityService.isRunning) {
+                android.widget.Toast.makeText(this, "Ative o Serviço de Acessibilidade", android.widget.Toast.LENGTH_SHORT).show()
+            } else {
+                toggleCameraCapture()
+            }
+            removePanel()
+        })
+        container.addView(spacerView())
+        container.addView(simpleButton("⚙ Config. do mouse") {
             enterEditMode(openMouseSettingsOnReady = true)
         })
 
@@ -545,11 +554,16 @@ class OverlayService : Service() {
             onDelta = { dx, dy -> onPointerDelta(dx, dy) },
             onButton = { code, pressed -> MapperAccessibilityService.instance?.handleMouseButton(code, pressed) }
         )
+        // IMPORTANTE: a janela da captura NÃO pode ter FLAG_NOT_FOCUSABLE.
+        // requestPointerCapture() só funciona numa view que tem foco de janela;
+        // sem essa flag a view pode ganhar foco e a captura do mouse realmente
+        // funciona. FLAG_NOT_TOUCH_MODAL impede que toques fora dela sejam
+        // consumidos por ela, mantendo o jogo interativo normalmente.
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         )
         runCatching {
