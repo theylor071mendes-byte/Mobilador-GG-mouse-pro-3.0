@@ -36,6 +36,11 @@ android {
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
     }
+
+    // Garantir que assets binários não sejam comprimidos (mantém tamanho do APK)
+    aaptOptions {
+        noCompress("bin", "dat")
+    }
 }
 
 dependencies {
