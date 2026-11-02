@@ -6,7 +6,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.GradientDrawable
-import android.text.InputType
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.KeyEvent
@@ -25,7 +24,6 @@ import com.mobiladorprox.app.data.db.entity.KeyBindingEntity
 import com.mobiladorprox.app.data.model.GestureType
 import com.mobiladorprox.app.data.model.MouseButtons
 import com.mobiladorprox.app.data.model.PollingRate
-import java.util.Locale
 import kotlin.math.roundToInt
 
 /**

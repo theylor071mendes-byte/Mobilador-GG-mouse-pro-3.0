@@ -163,7 +163,7 @@ class OverlayService : Service() {
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle(getString(R.string.notification_title))
             .setContentText(getString(R.string.notification_text))
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setSmallIcon(R.drawable.ic_launcher)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .build()
@@ -669,8 +669,8 @@ class OverlayService : Service() {
         const val EXTRA_OPEN_MOUSE_SETTINGS = "extra_open_mouse_settings"
         private const val AUTO_STOP_GRACE_MS = 2200L
 
-        private val COLOR_NEON_PURPLE = Color.parseColor("#FF1E42")
-        private val COLOR_NEON_BLUE = Color.parseColor("#FF5C72")
+        private val COLOR_NEON_PURPLE = Color.parseColor("#9D4DFF")
+        private val COLOR_NEON_BLUE = Color.parseColor("#00E5FF")
 
         @Volatile
         var isRunning: Boolean = false

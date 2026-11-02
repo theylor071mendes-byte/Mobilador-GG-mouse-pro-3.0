@@ -85,5 +85,12 @@ object MapperState {
         bindingsByKeyCode = emptyMap()
         cameraBinding = null
         analogStickBinding = null
+        // Reseta para os padrões para que o próximo serviço comece limpo
+        // antes de carregar as preferências persistidas do DataStore.
+        mouseSensitivity = 5f
+        pollingRate = PollingRate.UNLIMITED
+        lookResponsiveness = 0.65f
+        freeLookSpeedX = 500f
+        freeLookSpeedY = 500f
     }
 }

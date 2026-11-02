@@ -4,30 +4,104 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
+    <!-- Fundo escuro com gradiente -->
     <path
-        android:fillColor="#FF0A0A0F"
+        android:fillColor="#0D0D1A"
         android:pathData="M0,0h108v108h-108z" />
 
-    <!-- Anel de mira neon -->
+    <!-- Círculo de fundo neon suave -->
+    <path
+        android:fillColor="#1A0D2E"
+        android:pathData="M54,8 A46,46 0 1,0 54,100 A46,46 0 1,0 54,8" />
+
+    <!-- Anel externo neon purple -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#FF9D4DFF"
-        android:strokeWidth="6"
-        android:pathData="M54,20 A34,34 0 1,0 54,88 A34,34 0 1,0 54,20" />
+        android:strokeColor="#9D4DFF"
+        android:strokeWidth="3.5"
+        android:pathData="M54,14 A40,40 0 1,0 54,94 A40,40 0 1,0 54,14" />
 
+    <!-- Corpo do mouse estilizado – contorno -->
     <path
         android:fillColor="#00000000"
-        android:strokeColor="#FF00E5FF"
-        android:strokeWidth="6"
-        android:pathData="M54,36 A18,18 0 1,0 54,72 A18,18 0 1,0 54,36" />
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="2.5"
+        android:pathData="M40,38 Q38,34 40,30 Q42,26 54,26 Q66,26 68,30 Q70,34 68,38 L68,68 Q68,74 62,76 L46,76 Q40,74 40,68 Z" />
 
-    <!-- Travessões da mira -->
+    <!-- Divisória central do mouse -->
     <path
-        android:fillColor="#FFF5F5FF"
-        android:pathData="M51,10 h6 v16 h-6z M51,82 h6 v16 h-6z M10,51 h16 v6 h-16z M82,51 h16 v6 h-16z" />
+        android:fillColor="#00000000"
+        android:strokeColor="#9D4DFF"
+        android:strokeWidth="2"
+        android:pathData="M54,26 L54,50" />
 
-    <!-- Ponto central -->
+    <!-- Scroll wheel neon -->
     <path
-        android:fillColor="#FF00E5FF"
-        android:pathData="M48,48 h12 v12 h-12z" />
+        android:fillColor="#00E5FF"
+        android:pathData="M50,42 Q50,38 54,38 Q58,38 58,42 L58,50 Q58,54 54,54 Q50,54 50,50 Z" />
+
+    <!-- Tecla W à direita no teclado (estilizada) -->
+    <path
+        android:fillColor="#9D4DFF"
+        android:pathData="M72,36 h10 v8 h-10z"
+        android:strokeColor="#B57FFF"
+        android:strokeWidth="1" />
+
+    <!-- Tecla A -->
+    <path
+        android:fillColor="#7A35D4"
+        android:pathData="M66,47 h8 v8 h-8z"
+        android:strokeColor="#9D4DFF"
+        android:strokeWidth="1" />
+
+    <!-- Tecla S -->
+    <path
+        android:fillColor="#9D4DFF"
+        android:pathData="M76,47 h8 v8 h-8z"
+        android:strokeColor="#B57FFF"
+        android:strokeWidth="1" />
+
+    <!-- Tecla D -->
+    <path
+        android:fillColor="#7A35D4"
+        android:pathData="M86,47 h8 v8 h-8z"
+        android:strokeColor="#9D4DFF"
+        android:strokeWidth="1" />
+
+    <!-- Labels WASD minúsculos (pontos decorativos) -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M76,39.5 A1.2,1.2 0 1,0 76,42 A1.2,1.2 0 1,0 76,39.5" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M69.5,50.5 A1.2,1.2 0 1,0 69.5,53 A1.2,1.2 0 1,0 69.5,50.5" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M79.5,50.5 A1.2,1.2 0 1,0 79.5,53 A1.2,1.2 0 1,0 79.5,50.5" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M89.5,50.5 A1.2,1.2 0 1,0 89.5,53 A1.2,1.2 0 1,0 89.5,50.5" />
+
+    <!-- Conector neon: mouse → WASD (linha diagonal) -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#9D4DFF"
+        android:strokeWidth="1.5"
+        android:strokeAlpha="0.7"
+        android:pathData="M68,44 Q70,42 72,40" />
+
+    <!-- Texto "MX" centralizado embaixo do mouse -->
+    <path
+        android:fillColor="#00E5FF"
+        android:pathData="M43,82 h3 v-8 h2 v8 h3 v2 h-8z" />
+    <path
+        android:fillColor="#9D4DFF"
+        android:pathData="M52,74 l3,5 l3,-5 h2 v10 h-2 v-6 l-3,4 l-3,-4 v6 h-2 v-10z" />
+
+    <!-- Brilho neon inferior -->
+    <path
+        android:fillColor="#9D4DFF"
+        android:fillAlpha="0.15"
+        android:pathData="M28,88 Q54,96 80,88 L80,100 L28,100 Z" />
+
 </vector>

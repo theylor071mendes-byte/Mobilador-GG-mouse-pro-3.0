@@ -58,6 +58,22 @@ class MapperAccessibilityService : AccessibilityService() {
     // Analógico virtual (WASD combinado).
     private val pressedWasd = mutableSetOf<Int>()
 
+    /**
+     * Geração do loop de continuação do analógico. Incrementar invalida
+     * todos os callbacks postDelayed ainda na fila do handler — eles
+     * verificam se a geração deles ainda é a corrente antes de agir.
+     * Isso elimina o vazamento de callbacks "fantasmas" que continuavam
+     * disparando após releaseAnalogStick() ou releaseAllInputs().
+     */
+    private var analogGeneration = 0
+
+    /**
+     * Geração de continuação por HOLD (chave = actionId → geração).
+     * Idem: incrementar a geração de um HOLD específico cancela os
+     * callbacks dele sem afetar outros HOLDs em andamento.
+     */
+    private val holdGenerations = HashMap<String, Int>()
+
     private class VirtualTouch(
         var stroke: GestureDescription.StrokeDescription,
         var x: Float,
@@ -104,6 +120,7 @@ class MapperAccessibilityService : AccessibilityService() {
 
     override fun onUnbind(intent: android.content.Intent?): Boolean {
         releaseAllInputs()
+        handler.removeCallbacksAndMessages(null)
         instance = null
         onForegroundAppChanged = null
         onToggleCameraRequested = null
@@ -138,6 +155,9 @@ class MapperAccessibilityService : AccessibilityService() {
      */
     fun releaseAllInputs() {
         pressedWasd.clear()
+        // Invalida TODOS os loops de continuação pendentes (analógico + HOLDs).
+        analogGeneration++
+        holdGenerations.clear()
         if (virtualTouches.isNotEmpty()) {
             val builder = GestureDescription.Builder()
             strokeLimitedEntries().forEach { (_, touch) ->
@@ -322,7 +342,11 @@ class MapperAccessibilityService : AccessibilityService() {
     }
 
     private fun scheduleAnalogContinuation() {
+        val myGen = analogGeneration
         handler.postDelayed({
+            // Se a geração mudou desde que agendamos, este callback é obsoleto
+            // (o analógico foi solto ou todos os inputs foram liberados).
+            if (analogGeneration != myGen) return@postDelayed
             val touch = virtualTouches[ANALOG_TOUCH_ID] ?: return@postDelayed
             // Mantém o toque parado na posição atual (sem andar) até a próxima mudança de tecla.
             val path = Path().apply { moveTo(touch.x, touch.y) }
@@ -334,6 +358,8 @@ class MapperAccessibilityService : AccessibilityService() {
 
     private fun releaseAnalogStick() {
         val touch = virtualTouches[ANALOG_TOUCH_ID] ?: return
+        // Invalida o loop de continuação do analógico antes de soltar.
+        analogGeneration++
         // Correção de bug: sem este passo, o último segmento ficava sempre em
         // "willContinue=true" e o toque simulado nunca soltava de fato na
         // tela — o personagem continuava andando sozinho mesmo depois de
@@ -367,24 +393,31 @@ class MapperAccessibilityService : AccessibilityService() {
         val path = Path().apply { moveTo(x, y) }
         val stroke = GestureDescription.StrokeDescription(path, 0, HOLD_SEGMENT_MS, true)
         virtualTouches[id] = VirtualTouch(stroke, x, y)
+        // Registra a geração inicial deste HOLD antes de agendar o loop.
+        val myGen = 0
+        holdGenerations[actionId] = myGen
         dispatchCombined()
-        scheduleHoldContinuation(actionId, x, y)
+        scheduleHoldContinuation(actionId, x, y, myGen)
     }
 
-    private fun scheduleHoldContinuation(actionId: String, x: Float, y: Float) {
+    private fun scheduleHoldContinuation(actionId: String, x: Float, y: Float, gen: Int) {
         val id = holdTouchId(actionId)
         handler.postDelayed({
+            // Callback obsoleto se a geração mudou (HOLD foi solto ou releaseAllInputs chamado).
+            if (holdGenerations[actionId] != gen) return@postDelayed
             val touch = virtualTouches[id] ?: return@postDelayed
             val path = Path().apply { moveTo(x, y) }
             touch.stroke = touch.stroke.continueStroke(path, 0, HOLD_SEGMENT_MS, true)
             dispatchCombined()
-            scheduleHoldContinuation(actionId, x, y)
+            scheduleHoldContinuation(actionId, x, y, gen)
         }, HOLD_SEGMENT_MS - HOLD_RENEW_MARGIN_MS)
     }
 
     private fun stopHold(actionId: String) {
         val id = holdTouchId(actionId)
         val touch = virtualTouches[id] ?: return
+        // Invalida o loop de continuação deste HOLD específico.
+        holdGenerations.remove(actionId)
         // Mesma correção do analógico: finaliza o gesto com willContinue=false
         // para garantir que o toque realmente solte na tela, sem cancelar
         // nenhum outro toque virtual que continue ativo (ex.: o analógico).
