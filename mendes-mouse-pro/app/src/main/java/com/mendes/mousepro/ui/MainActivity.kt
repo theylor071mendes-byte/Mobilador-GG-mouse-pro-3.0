@@ -112,8 +112,25 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // Recria a tela para atualizar status de permissões
-        recreate()
+        // Atualiza apenas os campos de status sem recriar a Activity inteira
+        updateStatusCard()
+    }
+
+    private var statusOverlayLabel: TextView? = null
+    private var statusServiceLabel: TextView? = null
+
+    private fun updateStatusCard() {
+        val overlayOk = android.provider.Settings.canDrawOverlays(this)
+        val serviceOk = OverlayService.isRunning
+        statusOverlayLabel?.let { updateStatusRow(it, overlayOk) }
+        statusServiceLabel?.let { updateStatusRow(it, serviceOk) }
+    }
+
+    private fun updateStatusRow(tv: TextView, ok: Boolean) {
+        // Não faz nada se o estado não mudou (evita piscar)
+        val currentOk = tv.currentTextColor == 0xFF00CC44.toInt()
+        if (currentOk == ok) return
+        tv.setTextColor(if (ok) 0xFF00CC44.toInt() else 0xFFCC3333.toInt())
     }
 
     // ── Helpers de UI ────────────────────────────────────────────────────────
@@ -134,14 +151,19 @@ class MainActivity : Activity() {
         })
 
         val overlayOk = Settings.canDrawOverlays(this)
-        card.addView(statusRow("Permissão de Sobreposição", overlayOk))
-        card.addView(statusRow("Serviço de Overlay", OverlayService.isRunning))
+        val (rowOverlay, tvOverlay) = statusRow("Permissão de Sobreposição", overlayOk)
+        val (rowService, tvService) = statusRow("Serviço de Overlay", OverlayService.isRunning)
+        statusOverlayLabel = tvOverlay
+        statusServiceLabel = tvService
+        card.addView(rowOverlay)
+        card.addView(rowService)
 
         return card
     }
 
-    private fun statusRow(label: String, ok: Boolean): LinearLayout {
-        return LinearLayout(this).apply {
+    private fun statusRow(label: String, ok: Boolean): Pair<LinearLayout, TextView> {
+        var statusTv: TextView? = null
+        val row = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(0, dp(6), 0, 0)
@@ -151,6 +173,7 @@ class MainActivity : Activity() {
                 textSize = 14f
                 setTextColor(if (ok) 0xFF00CC44.toInt() else 0xFFCC3333.toInt())
                 minWidth = dp(24)
+                statusTv = this
             })
             addView(TextView(this@MainActivity).apply {
                 text = label
@@ -164,6 +187,7 @@ class MainActivity : Activity() {
                 setTextColor(if (ok) 0xFF00CC44.toInt() else 0xFFCC3333.toInt())
             })
         }
+        return Pair(row, statusTv!!)
     }
 
     private fun buildPermissionCard(
