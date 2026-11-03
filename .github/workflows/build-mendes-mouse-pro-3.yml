@@ -70,4 +70,4 @@ jobs:
           gh release create "mmp3-build-${{ github.run_number }}" \
             app/build/outputs/apk/debug/*.apk \
             --title "Mendes Mouse Pro 3 - build ${{ github.run_number }}" \
-            --notes "APK gerado automaticamente pelo GitHub Actions a partir do commit ${{ github.sha }}."
+            --notes "APK de depuração gerado automaticamente pelo GitHub Actions a partir do commit ${{ github.sha }}."
